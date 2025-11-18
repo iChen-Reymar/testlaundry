@@ -18,6 +18,7 @@ export default function Login() {
 
   const handleLogin = () => {
     console.log("Login:", loginData);
+    navigate("/dashboard"); // ⬅️ Redirect to dashboard
   };
 
   return (
