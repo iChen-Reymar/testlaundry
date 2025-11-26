@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import supabase from "../lib/supabaseClient.js";
 import logo from "../assets/logo.png";
 import facebook from "../assets/facebook.png";
 import gmail from "../assets/gmail.png";
@@ -13,14 +14,59 @@ export default function Signup() {
     password: "",
     confirmPassword: "",
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    setError(""); // Clear error on input change
   };
 
-  const handleSubmit = () => {
-    console.log("Form submitted:", formData);
-    navigate("/login");
+  const handleSubmit = async () => {
+    setError("");
+    
+    // Validation
+    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+      setError("All fields are required");
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Sign up user with Supabase Auth
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            name: formData.name,
+          }
+        }
+      });
+
+      if (signUpError) throw signUpError;
+
+      // Success - user created and profile auto-created via trigger
+      alert("Account created successfully! Please check your email for verification.");
+      navigate("/login");
+      
+    } catch (err) {
+      console.error("Signup error:", err);
+      setError(err.message || "Failed to create account. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,11 +90,18 @@ export default function Signup() {
           Create an account to continue
         </p>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
         <div className="space-y-4">
           {["name", "email", "password", "confirmPassword"].map((field) => (
             <input
               key={field}
-              type={field.includes("password") ? "password" : field}
+              type={field.includes("password") ? "password" : field === "email" ? "email" : "text"}
               name={field}
               placeholder={
                 field === "confirmPassword"
@@ -58,6 +111,7 @@ export default function Signup() {
               value={formData[field]}
               onChange={handleChange}
               className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+              disabled={loading}
             />
           ))}
         </div>
@@ -65,9 +119,10 @@ export default function Signup() {
         <div className="flex justify-center pt-6">
           <button
             onClick={handleSubmit}
-            className="w-50 py-3 bg-gray-400 text-black text-lg rounded-full font-semibold hover:bg-blue-500 hover:text-white transition-colors cursor-pointer"
+            disabled={loading}
+            className="w-50 py-3 bg-gray-400 text-black text-lg rounded-full font-semibold hover:bg-blue-500 hover:text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Sign Up
+            {loading ? "Creating Account..." : "Sign Up"}
           </button>
         </div>
 
