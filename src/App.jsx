@@ -8,6 +8,7 @@ import Dashboard from "./components/Dashboard";
 import Profile from "./components/Profile";
 import History from "./components/History";
 import AdminDashboard from "./components/AdminDashboard";
+import Receipt from "./components/Receipt";
 
 export default function App() {
   return (
@@ -22,9 +23,10 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/history" element={<History />} />
+        <Route path="/receipt" element={<Receipt />} />
         
         {/* Admin Screen */}
-        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admindashboard" element={<AdminDashboard />} />
       </Routes>
     </Router>
   );

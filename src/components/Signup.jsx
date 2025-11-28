@@ -57,7 +57,57 @@ export default function Signup() {
 
       if (signUpError) throw signUpError;
 
-      // Success - user created and profile auto-created via trigger
+      if (data.user) {
+        // Wait a moment for trigger to create profile, then update it
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to get existing profile first
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        if (existingProfile) {
+          // Profile exists, update it
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              name: formData.name,
+              email: formData.email
+            })
+            .eq('id', data.user.id);
+
+          if (profileError) {
+            console.error("Profile update error:", profileError);
+          }
+        } else {
+          // Profile doesn't exist, create it manually (trigger might have failed)
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              email: formData.email,
+              name: formData.name,
+              role: 'user'
+            });
+
+          if (insertError) {
+            console.error("Profile creation error:", insertError);
+          }
+        }
+
+        // Store user info in localStorage
+        localStorage.setItem('userProfile', JSON.stringify({
+          id: data.user.id,
+          email: formData.email,
+          name: formData.name,
+          role: 'user',
+          profile_image: null
+        }));
+      }
+
+      // Success - user created and profile updated
       alert("Account created successfully! Please check your email for verification.");
       navigate("/login");
       

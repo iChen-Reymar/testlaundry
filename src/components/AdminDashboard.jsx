@@ -60,6 +60,7 @@ export default function AdminDashboard() {
       });
     } catch (error) {
       console.error("Error fetching stats:", error);
+      alert("Failed to load statistics. Please refresh the page.");
     } finally {
       setLoading(false);
     }
@@ -73,7 +74,7 @@ export default function AdminDashboard() {
         .select(`
           *,
           profiles:user_id (name, email),
-          services:service_id (name)
+          services:service_id (name, price, unit)
         `)
         .order('created_at', { ascending: false });
 
@@ -81,6 +82,7 @@ export default function AdminDashboard() {
       setBookings(data || []);
     } catch (error) {
       console.error("Error fetching bookings:", error);
+      alert("Failed to load bookings. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -98,6 +100,7 @@ export default function AdminDashboard() {
       setUsers(data || []);
     } catch (error) {
       console.error("Error fetching users:", error);
+      alert("Failed to load users. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -115,6 +118,7 @@ export default function AdminDashboard() {
       setServices(data || []);
     } catch (error) {
       console.error("Error fetching services:", error);
+      alert("Failed to load services. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -171,6 +175,45 @@ export default function AdminDashboard() {
       console.error("Error updating service:", error);
       alert("Failed to update service");
     }
+  };
+
+  const generateReceiptText = (b) => {
+    const lines = [];
+    lines.push('Laundry Connect - Receipt');
+    lines.push('---------------------------------');
+    lines.push(`Order ID: ${b.order_id}`);
+    if (b.payment_id) {
+      lines.push(`Payment ID: ${b.payment_id}`);
+    }
+    lines.push(`Customer: ${b.profiles?.name || 'N/A'}`);
+    lines.push(`Email: ${b.profiles?.email || 'N/A'}`);
+    lines.push(`Service: ${b.services?.name || 'N/A'}`);
+    lines.push(`Quantity: ${b.quantity || 1}`);
+    lines.push(`Pickup: ${formatDate(b.pickup_date)} ${formatTime(b.pickup_time)}`);
+    lines.push(`Payment Method: ${b.payment_method || 'N/A'}`);
+    if (b.payment_status) {
+      lines.push(`Payment Status: ${b.payment_status}`);
+    }
+    lines.push(`Status: ${b.status}`);
+    lines.push('');
+    lines.push(`Total: ₱${b.total_price}`);
+    lines.push('');
+    lines.push('Thank you for choosing Laundry Connect.');
+    return lines.join('\n');
+  };
+
+  const downloadReceipt = (booking) => {
+    if (!booking) return;
+    const text = generateReceiptText(booking);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${booking.order_id || 'receipt'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const formatDate = (dateStr) => {
@@ -440,6 +483,22 @@ export default function AdminDashboard() {
                 <p className="text-gray-500">Payment Method:</p>
                 <p className="font-semibold">{selectedBooking.payment_method || "N/A"}</p>
               </div>
+              {selectedBooking.payment_id && (
+                <div className="flex justify-between">
+                  <p className="text-gray-500">Payment ID:</p>
+                  <p className="font-semibold">{selectedBooking.payment_id}</p>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <p className="text-gray-500">Payment Status:</p>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  selectedBooking.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                  selectedBooking.payment_status === 'unpaid' ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {selectedBooking.payment_status || "N/A"}
+                </span>
+              </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Status:</p>
                 {getStatusBadge(selectedBooking.status)}
@@ -447,6 +506,14 @@ export default function AdminDashboard() {
               <div className="flex justify-between border-t pt-3">
                 <p className="text-gray-500 font-medium">Total:</p>
                 <p className="font-semibold text-lg">₱{selectedBooking.total_price}</p>
+              </div>
+              <div className="mt-4 flex gap-2 justify-end">
+                <button
+                  onClick={() => downloadReceipt(selectedBooking)}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                >
+                  Download Receipt
+                </button>
               </div>
             </div>
           </div>

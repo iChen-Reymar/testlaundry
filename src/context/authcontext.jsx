@@ -1,15 +1,17 @@
-// src/utils/authHelpers.js
-import supabase from "../supabaseClient";
+// src/context/authcontext.jsx
+import supabase, { resolveClient } from "../lib/supabaseClient.js";
 
 // Get current logged in user
-export const getCurrentUser = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
+export const getCurrentUser = async (client) => {
+  const sb = resolveClient(client || supabase);
+  const { data: { user } } = await sb.auth.getUser();
   return user;
 };
 
 // Get user profile with role
-export const getUserProfile = async (userId) => {
-  const { data, error } = await supabase
+export const getUserProfile = async (userId, client) => {
+  const sb = resolveClient(client || supabase);
+  const { data, error } = await sb
     .from('profiles')
     .select('*')
     .eq('id', userId)
@@ -20,12 +22,12 @@ export const getUserProfile = async (userId) => {
 };
 
 // Check if user is admin
-export const isAdmin = async () => {
+export const isAdmin = async (client) => {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(client);
     if (!user) return false;
     
-    const profile = await getUserProfile(user.id);
+    const profile = await getUserProfile(user.id, client);
     return profile?.role === 'admin';
   } catch (error) {
     console.error("Error checking admin status:", error);
@@ -34,9 +36,10 @@ export const isAdmin = async () => {
 };
 
 // Logout user
-export const logout = async () => {
+export const logout = async (client) => {
+  const sb = resolveClient(client || supabase);
   try {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
     localStorage.removeItem('userProfile');
     return true;
   } catch (error) {
@@ -46,8 +49,8 @@ export const logout = async () => {
 };
 
 // Check if user is authenticated
-export const isAuthenticated = async () => {
-  const user = await getCurrentUser();
+export const isAuthenticated = async (client) => {
+  const user = await getCurrentUser(client);
   return user !== null;
 };
 
