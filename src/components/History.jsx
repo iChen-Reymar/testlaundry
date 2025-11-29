@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from "react";
-<<<<<<< HEAD
-import { ChevronLeft, Eye } from "lucide-react";
-=======
 import { ChevronLeft, Trash2, Eye } from "lucide-react";
->>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -44,7 +40,6 @@ export default function History() {
 
       if (error) throw error;
 
-      // Transform bookings to match the expected format
       const transformedHistory = (data || []).map(booking => ({
         id: booking.id,
         orderId: booking.order_id,
@@ -81,7 +76,6 @@ export default function History() {
 
       if (error) throw error;
       
-      // Refresh the list
       fetchBookings();
     } catch (error) {
       console.error("Error deleting booking:", error);
@@ -130,19 +124,13 @@ export default function History() {
                 </span>
               </div>
 
-<<<<<<< HEAD
-              <div className="flex">
-=======
               <div className="flex space-x-3">
->>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
                 <button
                   onClick={() => navigate("/receipt", { state: order })}
                   className="text-blue-500 hover:text-blue-600 transition cursor-pointer"
                 >
                   <Eye className="w-5 h-5" />
                 </button>
-<<<<<<< HEAD
-=======
 
                 <button
                   onClick={() => handleDelete(order.id)}
@@ -150,7 +138,6 @@ export default function History() {
                 >
                   <Trash2 className="w-5 h-5" />
                 </button>
->>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
               </div>
             </div>
           ))
