@@ -1,7 +1,7 @@
 {
-  "name": "Laundry Management System",
-  "short_name": "LaundryMS",
-  "description": "AI-Integrated Laundry Management System",
+  "name": "Laundry Connect",
+  "short_name": "Laundry Connect",
+  "description": "Laundry Connect App",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
