@@ -1,5 +1,9 @@
 import React, { useState } from "react";
+<<<<<<< HEAD
 import { ChevronLeft, Eye, EyeOff } from "lucide-react";
+=======
+import { ChevronLeft } from "lucide-react";
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 import logo from "../assets/logo.png";
@@ -16,9 +20,12 @@ export default function Signup() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+<<<<<<< HEAD
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+=======
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -151,6 +158,7 @@ export default function Signup() {
         )}
 
         <div className="space-y-4">
+<<<<<<< HEAD
 
           {/* Name */}
           <input
@@ -181,10 +189,24 @@ export default function Signup() {
               name="password"
               placeholder="Password"
               value={formData.password}
+=======
+          {["name", "email", "password", "confirmPassword"].map((field) => (
+            <input
+              key={field}
+              type={field.includes("password") ? "password" : field === "email" ? "email" : "text"}
+              name={field}
+              placeholder={
+                field === "confirmPassword"
+                  ? "Confirm Password"
+                  : field.charAt(0).toUpperCase() + field.slice(1)
+              }
+              value={formData[field]}
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
               onChange={handleChange}
               className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
               disabled={loading}
             />
+<<<<<<< HEAD
 
             <button
               type="button"
@@ -219,6 +241,11 @@ export default function Signup() {
         </div>
 
 
+=======
+          ))}
+        </div>
+
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
         <div className="flex justify-center pt-6">
           <button
             onClick={handleSubmit}

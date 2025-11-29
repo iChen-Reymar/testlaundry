@@ -12,7 +12,10 @@ import service3 from "../assets/service3.png";
 import history from "../assets/history.png";
 import booking from "../assets/booking-laundry.png";
 import profile from "../assets/profile.png";
+<<<<<<< HEAD
 import drycleaning from "../assets/drycleaning.png";
+=======
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -33,13 +36,21 @@ export default function Dashboard() {
   const serviceIcons = {
     "Wash & Fold": service1,
     "Ironing & Pressing": service2,
+<<<<<<< HEAD
+=======
+    "Iron Only": service2,
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
     "Dry Cleaning": service3,
   };
 
   const serviceImages = {
     "Wash & Fold": popular1,
     "Ironing & Pressing": popular2,
+<<<<<<< HEAD
     "Dry Cleaning": drycleaning,
+=======
+    "Iron Only": popular2,
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
   };
 
   // Fetch services from Supabase on component mount

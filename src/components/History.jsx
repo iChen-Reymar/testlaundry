@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from "react";
+<<<<<<< HEAD
 import { ChevronLeft, Eye } from "lucide-react";
+=======
+import { ChevronLeft, Trash2, Eye } from "lucide-react";
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -126,13 +130,27 @@ export default function History() {
                 </span>
               </div>
 
+<<<<<<< HEAD
               <div className="flex">
+=======
+              <div className="flex space-x-3">
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
                 <button
                   onClick={() => navigate("/receipt", { state: order })}
                   className="text-blue-500 hover:text-blue-600 transition cursor-pointer"
                 >
                   <Eye className="w-5 h-5" />
                 </button>
+<<<<<<< HEAD
+=======
+
+                <button
+                  onClick={() => handleDelete(order.id)}
+                  className="text-red-500 hover:text-red-600 transition cursor-pointer"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
               </div>
             </div>
           ))

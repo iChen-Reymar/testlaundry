@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+<<<<<<< HEAD
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
@@ -36,4 +37,10 @@ export default defineConfig({
       }
     })
   ]
+=======
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 })

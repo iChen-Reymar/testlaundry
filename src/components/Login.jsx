@@ -1,5 +1,9 @@
 import React, { useState } from "react";
+<<<<<<< HEAD
 import { ChevronLeft, Eye, EyeOff } from "lucide-react";
+=======
+import { ChevronLeft } from "lucide-react";
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import logo from "../assets/logo.png";
@@ -14,7 +18,10 @@ export default function Login() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+<<<<<<< HEAD
   const [showPassword, setShowPassword] = useState(false);
+=======
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
 
   const handleChange = (e) => {
     setLoginData({ ...loginData, [e.target.name]: e.target.value });
@@ -117,9 +124,14 @@ export default function Login() {
             className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
             disabled={loading}
           />
+<<<<<<< HEAD
           <div className="relative">
           <input
             type={showPassword ? "text" : "password"}
+=======
+          <input
+            type="password"
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
             name="password"
             placeholder="Password"
             value={loginData.password}
@@ -128,6 +140,7 @@ export default function Login() {
             className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
             disabled={loading}
           />
+<<<<<<< HEAD
 
           <button
             type="button"
@@ -137,6 +150,8 @@ export default function Login() {
             {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
           </button>
         </div>
+=======
+>>>>>>> 3b39e5a9ae2a8a8290210979a2f82c8db79f8269
         </div>
 
         <div className="flex justify-center pt-6">
