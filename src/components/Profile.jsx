@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Camera, X, Trash2 } from "lucide-react";
+import { ChevronLeft, Camera, X, Trash2, User, Mail, Edit3, LogOut, Shield, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -22,6 +22,7 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
+    checkAuth();
     let isMounted = true;
     
     const loadProfile = async () => {
@@ -36,6 +37,25 @@ export default function Profile() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      
+      const userProfile = localStorage.getItem('userProfile');
+      if (!userProfile) {
+        navigate("/login");
+        return;
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      navigate("/login");
+    }
+  };
 
   const fetchProfile = async () => {
     setLoading(true);
@@ -323,123 +343,153 @@ export default function Profile() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-blue-50 px-4 relative">
-      <button
-        onClick={() => navigate("/dashboard")}
-        className="absolute top-4 left-4 p-2 rounded-full hover:bg-gray-300 transition cursor-pointer"
-      >
-        <ChevronLeft className="w-6 h-6 text-gray-700 hover:text-gray-900" />
-      </button>
+    <div className="min-h-screen bg-gray-50 flex flex-col px-4 py-6">
+      {/* Simple Header */}
+      <div className="max-w-md mx-auto w-full mb-6">
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="mb-4 p-2 rounded-lg hover:bg-gray-100 transition"
+        >
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
+        </button>
+      </div>
 
-      <div className="w-full max-w-sm sm:max-w-md bg-white/70 backdrop-blur-sm shadow-md rounded-2xl p-6 flex flex-col items-center space-y-6">
+      <div className="max-w-md mx-auto w-full bg-white rounded-xl shadow-sm p-6 border border-gray-200">
         {loading ? (
-          <p className="text-gray-500">Loading profile...</p>
+          <div className="flex flex-col items-center py-12">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-600 text-sm">Loading...</p>
+          </div>
         ) : (
           <>
-            <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-blue-100 flex items-center justify-center">
-              {profile.image ? (
-                <>
-                  <img src={profile.image} alt="Profile" className="w-full h-full object-cover" />
-                  {profile.image.includes('supabase') && (
-                    <button
-                      onClick={deleteProfileImage}
-                      disabled={uploading}
-                      className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+            {/* Profile Image */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="relative mb-4">
+                <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-gray-200">
+                  {profile.image ? (
+                    <>
+                      <img src={profile.image} alt="Profile" className="w-full h-full object-cover" />
+                      {profile.image.includes('supabase') && (
+                        <button
+                          onClick={deleteProfileImage}
+                          disabled={uploading}
+                          className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition text-xs"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <User className="w-12 h-12 text-gray-400" />
                   )}
-                </>
-              ) : (
-                <p className="text-blue-500 font-medium text-sm">No Image</p>
-              )}
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <h1 className="text-xl font-semibold text-gray-900 mb-1">
+                  {profile.name || "User"}
+                </h1>
+                {profile.role === 'admin' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
+                    <Shield className="w-3 h-3" />
+                    Admin
+                  </span>
+                )}
+              </div>
             </div>
 
-            <h1 className="text-lg sm:text-xl font-semibold text-blue-600">
-              Personal Details
-            </h1>
-
-            <button
-              onClick={() => {
-                setTempProfile(profile);
-                setSelectedFile(null);
-                setIsModalOpen(true);
-              }}
-              className="w-75 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-full text-sm sm:text-base font-medium transition"
-            >
-              Edit Profile
-            </button>
-
-            <div className="w-full text-gray-800 space-y-3 text-center sm:text-left">
-              <div>
-                <p className="text-sm text-gray-500">Name</p>
-                <p className="font-medium text-base break-words">
+            {/* Profile Details */}
+            <div className="space-y-3 mb-6">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                <p className="text-xs text-gray-500 mb-1">Name</p>
+                <p className="text-gray-900 font-medium">
                   {profile.name || "No name set"}
                 </p>
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Email</p>
-                <p className="font-medium text-base break-words">
+
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                <p className="text-xs text-gray-500 mb-1">Email</p>
+                <p className="text-gray-900 font-medium break-words">
                   {profile.email || "No email set"}
                 </p>
               </div>
             </div>
 
-            <button
-              onClick={handleLogout}
-              className="w-25 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-full text-sm sm:text-base font-medium transition mt-4"
-            >
-              Logout
-            </button>
-
-            {profile.role === 'admin' && (
+            {/* Action Buttons */}
+            <div className="space-y-2">
               <button
-                onClick={() => navigate("/AdminDashboard")}
-                className="w-40 bg-green-500 hover:bg-green-600 text-white py-2 rounded-full text-sm sm:text-base font-medium transition mt-2"
+                onClick={() => {
+                  setTempProfile(profile);
+                  setSelectedFile(null);
+                  setIsModalOpen(true);
+                }}
+                className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2"
               >
-                Admin Panel
+                <Edit3 className="w-4 h-4" />
+                Edit Profile
               </button>
-            )}
+
+              {profile.role === 'admin' && (
+                <button
+                  onClick={() => navigate("/admindashboard")}
+                  className="w-full py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2"
+                >
+                  <Shield className="w-4 h-4" />
+                  Admin Dashboard
+                </button>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="w-full py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition flex items-center justify-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </button>
+            </div>
           </>
         )}
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-lg p-6 w-11/12 max-w-sm relative">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md relative border border-gray-200">
             <button
               onClick={() => setIsModalOpen(false)}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <h2 className="text-lg font-semibold text-blue-600 mb-4 text-center">
-              Edit Profile
-            </h2>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-1">Edit Profile</h2>
+              <p className="text-gray-600 text-sm">Update your information</p>
+            </div>
 
-            <div className="flex justify-center mb-4 relative">
-              <div className="w-24 h-24 rounded-2xl overflow-hidden bg-white flex items-center justify-center border-2 border-blue-200">
-                {tempProfile.image ? (
-                  <img src={tempProfile.image} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
-                  <p className="text-blue-400 font-medium text-sm">No Image</p>
-                )}
+            <div className="flex justify-center mb-6 relative">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-gray-200">
+                  {tempProfile.image ? (
+                    <img src={tempProfile.image} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-10 h-10 text-gray-400" />
+                  )}
+                </div>
+                <label
+                  htmlFor="imageUpload"
+                  className="absolute -bottom-1 -right-1 bg-blue-600 p-2 rounded-full cursor-pointer hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  <Camera className="text-white w-4 h-4" />
+                  <input
+                    type="file"
+                    id="imageUpload"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                    disabled={uploading || saving}
+                  />
+                </label>
               </div>
-              <label
-                htmlFor="imageUpload"
-                className="absolute bottom-0 right-0 bg-blue-500 p-2 rounded-full cursor-pointer hover:bg-blue-600 transition disabled:opacity-50"
-              >
-                <Camera className="text-white w-4 h-4" />
-                <input
-                  type="file"
-                  id="imageUpload"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleImageUpload}
-                  disabled={uploading || saving}
-                />
-              </label>
             </div>
 
             {selectedFile && (
@@ -448,41 +498,48 @@ export default function Profile() {
               </p>
             )}
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-500">Name</p>
+            <div className="space-y-4">
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
                   name="name"
                   value={tempProfile.name}
                   onChange={handleChange}
-                  placeholder="Enter your name"
-                  className="w-full border border-blue-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                  placeholder="Name"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   disabled={saving || uploading}
                 />
               </div>
 
-              <div>
-                <p className="text-sm text-gray-500">Email</p>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
                   name="email"
                   value={tempProfile.email}
                   onChange={handleChange}
-                  placeholder="Enter your email"
-                  className="w-full border border-blue-300 rounded-lg px-3 py-2 text-gray-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                  placeholder="Email"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   disabled={saving || uploading}
                 />
               </div>
             </div>
 
-            <div className="mt-6 flex justify-center">
+            <div className="mt-6">
               <button
                 onClick={handleSave}
                 disabled={saving || uploading}
-                className="bg-blue-500 text-white px-6 py-2 rounded-full font-medium hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {uploading ? "Uploading..." : saving ? "Saving..." : "Save Changes"}
+                {saving || uploading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    {uploading ? "Uploading..." : "Saving..."}
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
               </button>
             </div>
           </div>

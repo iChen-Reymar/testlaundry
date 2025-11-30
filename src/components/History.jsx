@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Trash2, Eye } from "lucide-react";
+import { ChevronLeft, Trash2, Eye, Clock, Calendar, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -8,8 +8,10 @@ export default function History() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState(null);
+  const [userRole, setUserRole] = useState('user');
 
   useEffect(() => {
+    checkAuth();
     getUserProfile();
   }, []);
 
@@ -19,29 +21,71 @@ export default function History() {
     }
   }, [userId]);
 
+  const checkAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      
+      const userProfile = localStorage.getItem('userProfile');
+      if (!userProfile) {
+        navigate("/login");
+        return;
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      navigate("/login");
+    }
+  };
+
   const getUserProfile = () => {
     const userProfile = JSON.parse(localStorage.getItem('userProfile'));
     if (userProfile && userProfile.id) {
       setUserId(userProfile.id);
+      setUserRole(userProfile.role || 'user');
     }
   };
 
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Build query - admins see all bookings, users see only their own
+      let query = supabase
         .from('bookings')
         .select(`
           *,
-          services:service_id (name, price, unit)
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+          services:service_id (name, price, unit),
+          profiles:user_id (name, email)
+        `);
+
+      // If user is not admin, filter by their user_id
+      if (userRole !== 'admin') {
+        query = query.eq('user_id', userId);
+      }
+
+      const { data: allBookings, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
 
+      // For regular users, filter out hidden bookings
+      let filteredBookings = allBookings || [];
+      if (userRole !== 'admin' && userId) {
+        // Get list of hidden booking IDs for this user
+        const { data: hiddenBookings } = await supabase
+          .from('user_hidden_bookings')
+          .select('booking_id')
+          .eq('user_id', userId);
+        
+        const hiddenIds = new Set((hiddenBookings || []).map(h => h.booking_id));
+        
+        // Filter out hidden bookings
+        filteredBookings = (allBookings || []).filter(booking => !hiddenIds.has(booking.id));
+      }
+
       // Transform bookings to match the expected format
-      const transformedHistory = (data || []).map(booking => ({
+      const transformedHistory = filteredBookings.map(booking => ({
         id: booking.id,
         orderId: booking.order_id,
         paymentId: booking.payment_id || `PMT-${booking.id}`,
@@ -54,6 +98,9 @@ export default function History() {
         }],
         status: booking.status,
         payment_status: booking.payment_status,
+        user_id: booking.user_id,
+        customerName: booking.profiles?.name || "Unknown Customer",
+        customerEmail: booking.profiles?.email || "",
         booking: booking
       }));
 
@@ -66,80 +113,191 @@ export default function History() {
     }
   };
 
-  const handleDelete = async (bookingId) => {
-    if (!confirm("Are you sure you want to delete this booking?")) return;
+  const handleDelete = async (bookingId, bookingUserId) => {
+    // Check if user has permission
+    if (userRole !== 'admin' && bookingUserId !== userId) {
+      alert("You can only delete your own bookings.");
+      return;
+    }
 
-    try {
-      const { error } = await supabase
-        .from('bookings')
-        .delete()
-        .eq('id', bookingId);
+    if (userRole === 'admin') {
+      // Admins can permanently delete bookings
+      const confirmMessage = "Are you sure you want to permanently delete this booking? This action cannot be undone and will remove it for all users.";
+      if (!confirm(confirmMessage)) return;
 
-      if (error) throw error;
-      
-      // Refresh the list
-      fetchBookings();
-    } catch (error) {
-      console.error("Error deleting booking:", error);
-      alert("Failed to delete booking. Please try again.");
+      try {
+        const { error } = await supabase
+          .from('bookings')
+          .delete()
+          .eq('id', bookingId);
+
+        if (error) {
+          if (error.code === '42501' || error.message.includes('permission')) {
+            alert("You don't have permission to delete this booking.");
+            return;
+          }
+          throw error;
+        }
+        
+        alert("Booking permanently deleted!");
+        fetchBookings();
+      } catch (error) {
+        console.error("Error deleting booking:", error);
+        alert("Failed to delete booking. Please try again.");
+      }
+    } else {
+      // Regular users: Hide booking from their view (soft delete)
+      const confirmMessage = "Are you sure you want to remove this booking from your history? Admins will still be able to see it.";
+      if (!confirm(confirmMessage)) return;
+
+      try {
+        // Check if already hidden
+        const { data: existing } = await supabase
+          .from('user_hidden_bookings')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('booking_id', bookingId)
+          .single();
+
+        if (existing) {
+          alert("This booking is already hidden from your view.");
+          return;
+        }
+
+        // Hide the booking for this user
+        const { error } = await supabase
+          .from('user_hidden_bookings')
+          .insert({
+            user_id: userId,
+            booking_id: bookingId
+          });
+
+        if (error) {
+          if (error.code === '23505') {
+            // Already hidden (unique constraint)
+            alert("This booking is already hidden.");
+            return;
+          }
+          throw error;
+        }
+        
+        alert("Booking removed from your history!");
+        // Refresh the list
+        fetchBookings();
+      } catch (error) {
+        console.error("Error hiding booking:", error);
+        alert("Failed to remove booking. Please try again.");
+      }
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-blue-50 px-4 py-8 relative">
-      <button
-        onClick={() => navigate("/dashboard")}
-        className="absolute top-4 left-4 p-2 rounded-full hover:bg-gray-300 transition cursor-pointer"
-      >
-        <ChevronLeft className="w-6 h-6 text-gray-700 hover:text-gray-900 transition" />
-      </button>
-      
-      <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-500 mb-8 text-center">History</h1>
+    <div className="min-h-screen bg-gray-50 flex flex-col px-4 py-6">
+      {/* Simple Header */}
+      <div className="max-w-2xl mx-auto w-full mb-6">
+        <div className="flex items-center gap-4 mb-6">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="p-2 rounded-lg hover:bg-gray-100 transition"
+          >
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-semibold text-gray-900">Booking History</h1>
+            <p className="text-gray-600 text-sm mt-1">View all your past orders</p>
+          </div>
+          {userRole === 'admin' && (
+            <span className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-medium">
+              Admin
+            </span>
+          )}
+        </div>
+      </div>
 
-      <div className="w-full max-w-md bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-4 sm:p-6 space-y-4">
+      <div className="max-w-2xl mx-auto w-full space-y-3">
         {loading ? (
-          <p className="text-gray-400 text-sm italic text-center">Loading...</p>
+          <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-gray-100">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
+            <p className="mt-4 text-gray-600 text-sm">Loading...</p>
+          </div>
         ) : history.length === 0 ? (
-          <p className="text-gray-400 text-sm italic text-center">No orders yet.</p>
+          <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-gray-100">
+            <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-600 font-medium">No orders yet</p>
+            <p className="text-gray-500 text-sm mt-1">Start booking to see your history</p>
+          </div>
         ) : (
           history.map((order) => (
-            <div key={order.id} className="flex justify-between items-center border-b border-gray-200 pb-3">
-              <div>
-                <p className="text-black font-medium text-sm sm:text-base">{order.orderId}</p>
-                <p className="text-gray-500 text-xs sm:text-sm">
-                  {order.services
-                    .map(
-                      (s) =>
-                        `${s.name} ${
-                          s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
-                        } ₱${parseFloat(s.price).toFixed(2)}`
-                    )
-                    .join(", ")}
-                </p>
-                <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                  order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                  order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                  order.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                  'bg-gray-100 text-gray-700'
-                }`}>
-                  {order.status}
-                </span>
-              </div>
+            <div 
+              key={order.id} 
+              className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all p-4 border border-gray-100"
+            >
+              <div className="flex justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-semibold text-gray-900">{order.orderId}</p>
+                      <p className="text-gray-500 text-xs mt-1">{order.date}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => navigate("/receipt", { state: order })}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        title="View Receipt"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(order.id, order.user_id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                        title={userRole === 'admin' ? 'Delete (Admin)' : 'Remove from history'}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => navigate("/receipt", { state: order })}
-                  className="text-blue-500 hover:text-blue-600 transition cursor-pointer"
-                >
-                  <Eye className="w-5 h-5" />
-                </button>
+                  {userRole === 'admin' && (
+                    <p className="text-gray-600 text-xs mb-2">
+                      {order.customerName} • {order.customerEmail}
+                    </p>
+                  )}
 
-                <button
-                  onClick={() => handleDelete(order.id)}
-                  className="text-red-500 hover:text-red-600 transition cursor-pointer"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                  <p className="text-gray-700 text-sm mb-2">
+                    {order.services
+                      .map(
+                        (s) =>
+                          `${s.name} ${
+                            s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
+                          }`
+                      )
+                      .join(", ")}
+                  </p>
+
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-gray-900">
+                      ₱{order.services.reduce((sum, s) => sum + parseFloat(s.price), 0).toFixed(2)}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        order.status === 'completed' ? 'bg-green-100 text-green-700' :
+                        order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        order.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {order.status.replace('_', ' ')}
+                      </span>
+                      {order.payment_status && (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          order.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {order.payment_status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ))

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Mail, Lock, User, UserPlus, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 import logo from "../assets/logo.png";
@@ -120,81 +120,129 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-blue-50 flex items-center justify-center px-4 py-8">
-      <div className="bg-white w-full max-w-md md:max-w-lg rounded-3xl shadow-xl p-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-8 border border-gray-200">
         <button
           onClick={() => navigate("/")}
-          className="mb-6 p-2 hover:bg-gray-100 rounded-full transition-all duration-150 cursor-pointer"
+          className="mb-6 p-2 hover:bg-gray-100 rounded-lg transition"
         >
-          <ChevronLeft className="w-6 h-6 text-gray-700" />
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
 
-        <div className="flex justify-center mb-4">
-          <img src={logo} alt="Logo" className="w-28 md:w-32 h-auto" />
+        <div className="flex justify-center mb-6">
+          <img src={logo} alt="Logo" className="w-24 h-auto" />
         </div>
 
-        <h1 className="text-3xl font-bold text-center text-black mb-1">
-          Sign Up
-        </h1>
-        <p className="text-center text-gray-500 mb-6">
-          Create an account to continue
-        </p>
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Create Account</h1>
+          <p className="text-gray-600 text-sm">
+            Sign up to get started
+          </p>
+        </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
             {error}
           </div>
         )}
 
         <div className="space-y-4">
-          {["name", "email", "password", "confirmPassword"].map((field) => (
+          <div className="relative">
+            <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
-              key={field}
-              type={field.includes("password") ? "password" : field === "email" ? "email" : "text"}
-              name={field}
-              placeholder={
-                field === "confirmPassword"
-                  ? "Confirm Password"
-                  : field.charAt(0).toUpperCase() + field.slice(1)
-              }
-              value={formData[field]}
+              type="text"
+              name="name"
+              placeholder="Full Name"
+              value={formData.name}
               onChange={handleChange}
-              className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             />
-          ))}
+          </div>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="email"
+              name="email"
+              placeholder="Email"
+              value={formData.email}
+              onChange={handleChange}
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+            />
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="password"
+              name="password"
+              placeholder="Password"
+              value={formData.password}
+              onChange={handleChange}
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+            />
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="password"
+              name="confirmPassword"
+              placeholder="Confirm Password"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+            />
+          </div>
         </div>
 
-        <div className="flex justify-center pt-6">
+        <div className="pt-6">
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="w-50 py-3 bg-gray-400 text-black text-lg rounded-full font-semibold hover:bg-blue-500 hover:text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {loading ? "Creating Account..." : "Sign Up"}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Creating Account...
+              </>
+            ) : (
+              <>
+                <UserPlus className="w-4 h-4" />
+                Sign Up
+              </>
+            )}
           </button>
         </div>
 
-        <p className="text-center text-gray-500 text-sm my-4">
-          Or sign up with
-        </p>
-        <div className="flex justify-center gap-8 mb-4">
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-200"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-4 bg-white text-gray-500">Or continue with</span>
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-3 mb-6">
           <a
             href="https://www.facebook.com/login.php"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center hover:scale-105 transition-transform"
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
           >
-            <img src={facebook} alt="Facebook" className="w-8 h-8" />
+            <img src={facebook} alt="Facebook" className="w-5 h-5" />
           </a>
           <a
             href="https://accounts.google.com/signin"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center hover:scale-105 transition-transform"
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
           >
-            <img src={gmail} alt="Gmail" className="w-8 h-8" />
+            <img src={gmail} alt="Gmail" className="w-5 h-5" />
           </a>
         </div>
 
@@ -202,7 +250,7 @@ export default function Signup() {
           Already have an account?{" "}
           <button
             onClick={() => navigate("/login")}
-            className="font-semibold text-blue-500 hover:underline"
+            className="font-medium text-blue-600 hover:text-blue-700"
           >
             Sign in
           </button>

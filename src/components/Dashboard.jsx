@@ -44,9 +44,29 @@ export default function Dashboard() {
 
   // Fetch services from Supabase on component mount
   useEffect(() => {
+    checkAuth();
     fetchServices();
     getUserProfile();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      
+      const userProfile = localStorage.getItem('userProfile');
+      if (!userProfile) {
+        navigate("/login");
+        return;
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      navigate("/login");
+    }
+  };
 
   const getUserProfile = () => {
     const userProfile = JSON.parse(localStorage.getItem('userProfile'));
@@ -233,111 +253,106 @@ export default function Dashboard() {
 
   // ----- JSX -----
   return (
-    <div className="min-h-screen bg-blue-50 flex flex-col relative">
+    <div className="min-h-screen bg-gray-50 flex flex-col relative">
 
-      {/* Enhanced Header with Gradient */}
-      <div className="relative bg-gradient-to-r from-blue-500 via-blue-400 to-cyan-400 text-white px-4 py-6 shadow-lg">
-        <div className="absolute inset-0 bg-black opacity-5"></div>
-        <div className="relative flex items-center justify-between">
-          <button onClick={() => navigate("/login")} className="p-2 rounded-full hover:bg-white/20 transition cursor-pointer backdrop-blur-sm">
-            <ChevronLeft className="w-6 h-6" />
+      {/* Branded Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-4 py-4 shadow-md">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <button onClick={() => navigate("/")} className="p-2 rounded-lg hover:bg-white/20 transition">
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 animate-pulse" />
-            <h1 className="text-xl sm:text-2xl font-bold">Laundry Connect</h1>
+            <Sparkles className="w-5 h-5" />
+            <h1 className="text-lg font-bold">Laundry Connect</h1>
           </div>
-          <div className="w-10"></div> {/* Spacer for centering */}
+          <div className="w-9"></div>
         </div>
       </div>
 
-      {/* Main content with enhanced styling */}
-      <div className="flex-1 flex flex-col items-center px-4 pb-24 pt-6 md:pt-8 bg-gradient-to-b from-blue-50 via-white to-blue-50">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col items-center px-4 pb-24 pt-6 bg-gray-50">
 
-        {/* Welcome Section */}
-        <div className="w-full max-w-5xl mb-8">
-          <div className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-3xl p-6 text-white shadow-xl transform hover:scale-[1.02] transition-transform duration-300">
+        {/* Welcome Section - Enhanced */}
+        <div className="w-full max-w-6xl mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-2xl p-6 shadow-lg text-white">
             <div className="flex items-center gap-3 mb-2">
-              <Zap className="w-6 h-6 animate-bounce" />
+              <Zap className="w-6 h-6" />
               <h2 className="text-2xl font-bold">Welcome Back!</h2>
             </div>
-            <p className="text-blue-50 text-sm">Book your laundry service with ease and convenience</p>
+            <p className="text-blue-50">Book your laundry service with ease and convenience</p>
           </div>
         </div>
 
-        {/* Popular Services with enhanced cards */}
-        <section className="w-full max-w-5xl mb-8">
-          <div className="flex justify-between items-center mb-6">
+        {/* Popular Services - Enhanced */}
+        <section className="w-full max-w-6xl mb-8">
+          <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-500" />
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Popular Services</h2>
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl font-semibold text-gray-900">Popular Services</h2>
             </div>
-            <button className="text-blue-600 text-sm sm:text-base font-semibold hover:text-blue-700 cursor-pointer transition flex items-center gap-1 hover:gap-2"
-              onClick={() => setSeeAllModal({ type: "popular", data: popularServices })}>
+            <button 
+              className="text-blue-600 text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
+              onClick={() => setSeeAllModal({ type: "popular", data: popularServices })}
+            >
               See all <ChevronLeft className="w-4 h-4 rotate-180" />
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {popularServices.map((service, index) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {popularServices.map((service) => (
               <div 
                 key={service.id} 
-                className="relative bg-white rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-300 cursor-pointer transform hover:-translate-y-2 overflow-hidden group"
+                className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 overflow-hidden"
                 onClick={() => setModalService(service)}
-                style={{ animationDelay: `${index * 100}ms` }}
               >
-                {/* Gradient overlay on hover */}
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-cyan-500/0 group-hover:from-blue-500/10 group-hover:to-cyan-500/10 transition-all duration-300"></div>
-                
                 <div className="relative">
                   <img 
                     src={service.image} 
                     alt={service.name} 
-                    className="w-full h-48 sm:h-56 lg:h-64 object-cover group-hover:scale-110 transition-transform duration-300" 
+                    className="w-full h-40 object-cover" 
                   />
-                  <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-full flex items-center gap-1 shadow-lg">
-                    <span className="text-sm font-bold text-gray-800">{service.rating}</span>
-                    <FaStar className="text-yellow-400 text-sm fill-yellow-400" />
-                  </div>
-                  <div className="absolute top-3 left-3">
-                    <Award className="w-5 h-5 text-yellow-400 drop-shadow-lg" />
+                  <div className="absolute top-3 right-3 bg-white px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-medium">
+                    <FaStar className="text-yellow-400 fill-yellow-400" />
+                    <span>{service.rating}</span>
                   </div>
                 </div>
                 <div className="p-4">
-                  <p className="text-center font-bold text-gray-800 text-lg group-hover:text-blue-600 transition-colors">{service.name}</p>
-                  <p className="text-center text-sm text-gray-500 mt-1">{service.displayPrice}</p>
+                  <p className="font-semibold text-gray-900 text-base mb-1">{service.name}</p>
+                  <p className="text-sm text-gray-600">{service.displayPrice}</p>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        {/* Services with enhanced grid */}
-        <section className="w-full max-w-5xl">
-          <div className="flex justify-between items-center mb-6">
+        {/* All Services - Enhanced */}
+        <section className="w-full max-w-6xl">
+          <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-500" />
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-800">All Services</h2>
+              <Clock className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl font-semibold text-gray-900">All Services</h2>
             </div>
-            <button className="text-blue-600 text-sm sm:text-base font-semibold hover:text-blue-700 cursor-pointer transition flex items-center gap-1 hover:gap-2"
-              onClick={() => setSeeAllModal({ type: "services", data: services })}>
+            <button 
+              className="text-blue-600 text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
+              onClick={() => setSeeAllModal({ type: "services", data: services })}
+            >
               See all <ChevronLeft className="w-4 h-4 rotate-180" />
             </button>
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-4 place-items-center">
-            {services.map((service, index) => (
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+            {services.map((service) => (
               <div 
                 key={service.id} 
-                className="flex flex-col items-center bg-white rounded-2xl p-5 hover:shadow-xl transition-all duration-300 cursor-pointer w-full max-w-[120px] transform hover:-translate-y-1 hover:scale-105 border-2 border-transparent hover:border-blue-300 group"
+                className="flex flex-col items-center bg-white rounded-lg p-4 hover:shadow-md transition-all cursor-pointer border border-gray-100"
                 onClick={() => setModalService(service)}
-                style={{ animationDelay: `${index * 50}ms` }}
               >
-                <div className="bg-gradient-to-br from-blue-100 to-cyan-100 rounded-2xl p-4 mb-3 group-hover:from-blue-200 group-hover:to-cyan-200 transition-all duration-300">
+                <div className="bg-gray-50 rounded-lg p-3 mb-2">
                   <img 
                     src={service.icon} 
                     alt={service.name} 
-                    className="w-12 h-12 sm:w-14 sm:h-14 object-contain group-hover:scale-110 transition-transform duration-300" 
+                    className="w-10 h-10 object-contain" 
                   />
                 </div>
-                <p className="text-sm sm:text-base font-semibold text-gray-700 text-center group-hover:text-blue-600 transition-colors leading-tight">{service.name}</p>
+                <p className="text-xs font-medium text-gray-700 text-center leading-tight">{service.name}</p>
                 <p className="text-xs text-gray-500 mt-1 text-center">{service.displayPrice}</p>
               </div>
             ))}
@@ -347,17 +362,17 @@ export default function Dashboard() {
       </div>
 
       {/* Enhanced Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg py-4 shadow-2xl border-t border-gray-200 flex justify-around items-center md:rounded-t-3xl">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-blue-100 py-3 flex justify-around items-center shadow-lg">
         {bottomNav.map(item => (
           <button 
             key={item.id} 
             onClick={item.action} 
-            className="flex flex-col items-center text-gray-600 cursor-pointer hover:text-blue-600 transition-all duration-300 transform hover:scale-110 group"
+            className="flex flex-col items-center text-gray-600 hover:text-blue-600 transition-all group"
           >
-            <div className="p-2 rounded-full group-hover:bg-blue-50 transition-all duration-300">
-              <img src={item.icon} alt={item.label} className="w-6 h-6 object-contain group-hover:scale-110 transition-transform" />
+            <div className="p-2 rounded-lg group-hover:bg-blue-50 transition">
+              <img src={item.icon} alt={item.label} className="w-5 h-5 object-contain" />
             </div>
-            <span className="text-xs sm:text-sm font-semibold mt-1 group-hover:font-bold transition-all">{item.label}</span>
+            <span className="text-xs font-medium mt-1">{item.label}</span>
           </button>
         ))}
       </nav>

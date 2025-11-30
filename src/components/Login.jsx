@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ChevronLeft, Mail, Lock, LogIn, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import logo from "../assets/logo.png";
@@ -14,6 +14,26 @@ export default function Login() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Check if already logged in
+  useEffect(() => {
+    checkExistingSession();
+  }, []);
+
+  const checkExistingSession = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const userProfile = localStorage.getItem('userProfile');
+        if (userProfile) {
+          // User is already logged in, redirect to dashboard
+          navigate("/dashboard", { replace: true });
+        }
+      }
+    } catch (error) {
+      console.error("Session check error:", error);
+    }
+  };
 
   const handleChange = (e) => {
     setLoginData({ ...loginData, [e.target.name]: e.target.value });
@@ -78,85 +98,107 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-blue-50 flex items-center justify-center px-4 py-8">
-      <div className="bg-white w-full max-w-md md:max-w-lg rounded-3xl shadow-xl p-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-8 border border-gray-200">
         <button
           onClick={() => navigate("/")}
-          className="mb-6 p-2 hover:bg-gray-100 rounded-full transition-all duration-150 cursor-pointer"
+          className="mb-6 p-2 hover:bg-gray-100 rounded-lg transition"
         >
-          <ChevronLeft className="w-6 h-6 text-gray-700" />
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
 
-        <div className="flex justify-center mb-4">
-          <img src={logo} alt="Logo" className="w-28 md:w-32 h-auto" />
+        <div className="flex justify-center mb-6">
+          <img src={logo} alt="Logo" className="w-24 h-auto" />
         </div>
 
-        <h1 className="text-3xl font-bold text-center text-black mb-1">
-          Log In
-        </h1>
-        <p className="text-center text-gray-500 mb-6">
-          Enter your details to continue
-        </p>
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Welcome Back</h1>
+          <p className="text-gray-600 text-sm">
+            Sign in to your account
+          </p>
+        </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
             {error}
           </div>
         )}
 
         <div className="space-y-4">
-          <input
-            type="email"
-            name="email"
-            placeholder="Email"
-            value={loginData.email}
-            onChange={handleChange}
-            onKeyPress={handleKeyPress}
-            className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-            disabled={loading}
-          />
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            value={loginData.password}
-            onChange={handleChange}
-            onKeyPress={handleKeyPress}
-            className="w-full px-5 py-3 border-2 border-gray-300 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-            disabled={loading}
-          />
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="email"
+              name="email"
+              placeholder="Email"
+              value={loginData.email}
+              onChange={handleChange}
+              onKeyPress={handleKeyPress}
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+            />
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="password"
+              name="password"
+              placeholder="Password"
+              value={loginData.password}
+              onChange={handleChange}
+              onKeyPress={handleKeyPress}
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+            />
+          </div>
         </div>
 
-        <div className="flex justify-center pt-6">
+        <div className="pt-6">
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-50 py-3 bg-gray-400 text-black text-lg rounded-full font-semibold hover:bg-blue-500 hover:text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {loading ? "Logging in..." : "Log In"}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Logging in...
+              </>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" />
+                Log In
+              </>
+            )}
           </button>
         </div>
 
-        <p className="text-center text-gray-500 text-sm my-4">
-          Or log in with
-        </p>
-        <div className="flex justify-center gap-8 mb-4">
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-200"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-4 bg-white text-gray-500">Or continue with</span>
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-3 mb-6">
           <a
             href="https://www.facebook.com/login.php"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center hover:scale-105 transition-transform"
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
           >
-            <img src={facebook} alt="Facebook" className="w-8 h-8" />
+            <img src={facebook} alt="Facebook" className="w-5 h-5" />
           </a>
           <a
             href="https://accounts.google.com/signin"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center hover:scale-105 transition-transform"
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
           >
-            <img src={gmail} alt="Gmail" className="w-8 h-8" />
+            <img src={gmail} alt="Gmail" className="w-5 h-5" />
           </a>
         </div>
 
@@ -164,7 +206,7 @@ export default function Login() {
           Don't have an account?{" "}
           <button
             onClick={() => navigate("/signup")}
-            className="font-semibold text-blue-500 hover:underline"
+            className="font-medium text-blue-600 hover:text-blue-700"
           >
             Sign Up
           </button>

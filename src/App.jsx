@@ -9,24 +9,60 @@ import Profile from "./components/Profile";
 import History from "./components/History";
 import AdminDashboard from "./components/AdminDashboard";
 import Receipt from "./components/Receipt";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Auth Screens */}
+        {/* Public Screens */}
         <Route path="/" element={<Loading />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
 
-        {/* Main App Screens */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/receipt" element={<Receipt />} />
+        {/* Protected Routes - Require Authentication */}
+        <Route 
+          path="/dashboard" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/profile" 
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/history" 
+          element={
+            <ProtectedRoute>
+              <History />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/receipt" 
+          element={
+            <ProtectedRoute>
+              <Receipt />
+            </ProtectedRoute>
+          } 
+        />
         
-        {/* Admin Screen */}
-        <Route path="/admindashboard" element={<AdminDashboard />} />
+        {/* Admin Screen - Protected */}
+        <Route 
+          path="/admindashboard" 
+          element={
+            <ProtectedRoute>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } 
+        />
       </Routes>
     </Router>
   );
