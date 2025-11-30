@@ -69,7 +69,6 @@ export default function History() {
 
       if (error) throw error;
 
-<<<<<<< HEAD
       // For regular users, filter out hidden bookings
       let filteredBookings = allBookings || [];
       if (userRole !== 'admin' && userId) {
@@ -87,9 +86,6 @@ export default function History() {
 
       // Transform bookings to match the expected format
       const transformedHistory = filteredBookings.map(booking => ({
-=======
-      const transformedHistory = (data || []).map(booking => ({
->>>>>>> 6e9187bc5daa1cfff2d86c99b9f37f74d5e60857
         id: booking.id,
         orderId: booking.order_id,
         paymentId: booking.payment_id || `PMT-${booking.id}`,
@@ -129,7 +125,6 @@ export default function History() {
       const confirmMessage = "Are you sure you want to permanently delete this booking? This action cannot be undone and will remove it for all users.";
       if (!confirm(confirmMessage)) return;
 
-<<<<<<< HEAD
       try {
         const { error } = await supabase
           .from('bookings')
@@ -193,14 +188,6 @@ export default function History() {
         console.error("Error hiding booking:", error);
         alert("Failed to remove booking. Please try again.");
       }
-=======
-      if (error) throw error;
-      
-      fetchBookings();
-    } catch (error) {
-      console.error("Error deleting booking:", error);
-      alert("Failed to delete booking. Please try again.");
->>>>>>> 6e9187bc5daa1cfff2d86c99b9f37f74d5e60857
     }
   };
 
@@ -209,12 +196,12 @@ export default function History() {
       {/* Simple Header */}
       <div className="max-w-2xl mx-auto w-full mb-6">
         <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={() => navigate("/dashboard")}
+      <button
+        onClick={() => navigate("/dashboard")}
             className="p-2 rounded-lg hover:bg-gray-100 transition"
-          >
+      >
             <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
+      </button>
           <div className="flex-1">
             <h1 className="text-2xl font-semibold text-gray-900">Booking History</h1>
             <p className="text-gray-600 text-sm mt-1">View all your past orders</p>
@@ -248,7 +235,7 @@ export default function History() {
               <div className="flex justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-start justify-between mb-2">
-                    <div>
+              <div>
                       <p className="font-semibold text-gray-900">{order.orderId}</p>
                       <p className="text-gray-500 text-xs mt-1">{order.date}</p>
                     </div>
@@ -277,15 +264,15 @@ export default function History() {
                   )}
 
                   <p className="text-gray-700 text-sm mb-2">
-                    {order.services
-                      .map(
-                        (s) =>
-                          `${s.name} ${
-                            s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
+                  {order.services
+                    .map(
+                      (s) =>
+                        `${s.name} ${
+                          s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
                           }`
-                      )
-                      .join(", ")}
-                  </p>
+                    )
+                    .join(", ")}
+                </p>
 
                   <div className="flex items-center justify-between">
                     <p className="font-semibold text-gray-900">
@@ -310,7 +297,7 @@ export default function History() {
                       )}
                     </div>
                   </div>
-                </div>
+              </div>
               </div>
             </div>
           ))

@@ -20,12 +20,32 @@ export default function AdminDashboard() {
 
   // Check if user is admin
   useEffect(() => {
+    checkAuth();
     checkAdmin();
     if (activeTab === "overview") fetchStats();
     if (activeTab === "bookings") fetchBookings();
     if (activeTab === "users") fetchUsers();
     if (activeTab === "services") fetchServices();
   }, [activeTab]);
+
+  const checkAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      
+      const userProfile = localStorage.getItem('userProfile');
+      if (!userProfile) {
+        navigate("/login");
+        return;
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      navigate("/login");
+    }
+  };
 
   const checkAdmin = () => {
     const userProfile = JSON.parse(localStorage.getItem('userProfile'));
