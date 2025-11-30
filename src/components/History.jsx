@@ -69,6 +69,7 @@ export default function History() {
 
       if (error) throw error;
 
+<<<<<<< HEAD
       // For regular users, filter out hidden bookings
       let filteredBookings = allBookings || [];
       if (userRole !== 'admin' && userId) {
@@ -86,6 +87,9 @@ export default function History() {
 
       // Transform bookings to match the expected format
       const transformedHistory = filteredBookings.map(booking => ({
+=======
+      const transformedHistory = (data || []).map(booking => ({
+>>>>>>> 6e9187bc5daa1cfff2d86c99b9f37f74d5e60857
         id: booking.id,
         orderId: booking.order_id,
         paymentId: booking.payment_id || `PMT-${booking.id}`,
@@ -125,6 +129,7 @@ export default function History() {
       const confirmMessage = "Are you sure you want to permanently delete this booking? This action cannot be undone and will remove it for all users.";
       if (!confirm(confirmMessage)) return;
 
+<<<<<<< HEAD
       try {
         const { error } = await supabase
           .from('bookings')
@@ -188,6 +193,14 @@ export default function History() {
         console.error("Error hiding booking:", error);
         alert("Failed to remove booking. Please try again.");
       }
+=======
+      if (error) throw error;
+      
+      fetchBookings();
+    } catch (error) {
+      console.error("Error deleting booking:", error);
+      alert("Failed to delete booking. Please try again.");
+>>>>>>> 6e9187bc5daa1cfff2d86c99b9f37f74d5e60857
     }
   };
 

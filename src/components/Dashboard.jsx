@@ -3,7 +3,6 @@ import { ChevronLeft, Sparkles, TrendingUp, Clock, Award, Zap } from "lucide-rea
 import { FaStar } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
-
 import popular1 from "../assets/popular1.png";
 import popular2 from "../assets/popular2.png";
 import service1 from "../assets/service1.png";
@@ -12,6 +11,7 @@ import service3 from "../assets/service3.png";
 import history from "../assets/history.png";
 import booking from "../assets/booking-laundry.png";
 import profile from "../assets/profile.png";
+import drycleaning from "../assets/drycleaning.png";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -39,6 +39,7 @@ export default function Dashboard() {
   const serviceImages = {
     "Wash & Fold": popular1,
     "Ironing & Pressing": popular2,
+    "Dry Cleaning": drycleaning,
     "Iron Only": popular2,
   };
 
