@@ -16,7 +16,7 @@ export default function Loading() {
 
         <button
           onClick={() => navigate("/signup")}
-          className="px-16 py-3 bg-gray-400 text-black text-lg font-semibold rounded-full hover:bg-blue-500 hover:text-white transition-colors duration-200 cursor-pointer"
+          className="w-full px-16 py-3 bg-gray-400 text-black text-lg font-semibold rounded-lg hover:bg-blue-500 hover:text-white transition-colors duration-200 cursor-pointer"
         >
           Continue
         </button>
