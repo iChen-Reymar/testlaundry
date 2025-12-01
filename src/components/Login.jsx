@@ -3,8 +3,6 @@ import { ChevronLeft, Mail, Lock, LogIn, Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient";
 import logo from "../assets/logo.png";
-import facebook from "../assets/facebook.png";
-import gmail from "../assets/gmail.png";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -167,35 +165,7 @@ export default function Login() {
           </button>
         </div>
 
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-gray-500">Or continue with</span>
-          </div>
-        </div>
-
-        <div className="flex justify-center gap-3 mb-6">
-          <a
-            href="https://www.facebook.com/login.php"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <img src={facebook} alt="Facebook" className="w-5 h-5" />
-          </a>
-          <a
-            href="https://accounts.google.com/signin"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <img src={gmail} alt="Gmail" className="w-5 h-5" />
-          </a>
-        </div>
-
-        <p className="text-center text-sm text-gray-600">
+        <p className="text-center text-sm text-gray-600 mt-6">
           Don't have an account?{" "}
           <button
             onClick={() => navigate("/signup")}
