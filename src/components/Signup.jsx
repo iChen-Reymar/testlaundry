@@ -70,19 +70,13 @@ export default function Signup() {
         if (createError) throw createError;
       }
 
-      // Store user info in localStorage
-      localStorage.setItem(
-        "userProfile",
-        JSON.stringify({
-          id: data.user.id,
-          email: formData.email,
-          name: formData.name,
-          role: "user",
-          profile_image: null,
-        })
-      );
+      // Sign out the user to ensure they need to log in
+      await supabase.auth.signOut();
+      
+      // Clear any localStorage data
+      localStorage.removeItem('userProfile');
 
-      alert("Account created successfully! Please check your email for verification.");
+      alert("Account created successfully! Please log in to continue.");
       navigate("/login");
     } catch (err) {
       console.error("Signup error:", err);
