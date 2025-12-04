@@ -1,7 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-
-import Loading from "./components/Loading";
+import Landing from "./components/Landing";
 import Signup from "./components/Signup";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
@@ -16,7 +15,7 @@ export default function App() {
     <Router>
       <Routes>
         {/* Public Screens */}
-        <Route path="/" element={<Loading />} />
+        <Route path="/" element={<Landing />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
 
