@@ -472,7 +472,7 @@ export default function Dashboard() {
         <div className="fixed inset-0 bg-blue-50 bg-opacity-50 flex justify-center items-center z-50 overflow-auto p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
             <button onClick={() => setShowOrderDetailsModal(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
-            <h1 className="text-xl font-bold text-blue-500 mb-6 text-center">Order Details</h1>
+            <h1 className="text-xl font-bold text-blue-500 mb-6 text-center">Booking Details</h1>
 
             <div className="space-y-3">
               <div className="flex justify-between"><p className="text-gray-500 font-medium">Order ID:</p><p className="font-semibold">{showOrderDetailsModal.orderId}</p></div>
