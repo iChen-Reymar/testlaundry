@@ -35,6 +35,34 @@ export const isAdmin = async (client) => {
   }
 };
 
+// Check if user is staff (admin or staff)
+export const isStaff = async (client) => {
+  try {
+    const user = await getCurrentUser(client);
+    if (!user) return false;
+    
+    const profile = await getUserProfile(user.id, client);
+    return profile?.role === 'admin' || profile?.role === 'staff';
+  } catch (error) {
+    console.error("Error checking staff status:", error);
+    return false;
+  }
+};
+
+// Get user role
+export const getUserRole = async (client) => {
+  try {
+    const user = await getCurrentUser(client);
+    if (!user) return 'user';
+    
+    const profile = await getUserProfile(user.id, client);
+    return profile?.role || 'user';
+  } catch (error) {
+    console.error("Error getting user role:", error);
+    return 'user';
+  }
+};
+
 // Logout user
 export const logout = async (client) => {
   const sb = resolveClient(client || supabase);

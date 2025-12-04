@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock, CreditCard, Calendar, ChevronRight, ChevronLeft as ChevronLeftIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
+import Notifications from "./Notifications";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -17,13 +18,22 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState([]);
   const [services, setServices] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [currentUserRole, setCurrentUserRole] = useState('user');
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [bookingsByDate, setBookingsByDate] = useState({});
 
   // Check if user is admin
   useEffect(() => {
     checkAuth();
     checkAdmin();
     if (activeTab === "overview") fetchStats();
-    if (activeTab === "bookings") fetchBookings();
+    if (activeTab === "bookings") {
+      fetchBookings();
+      setSelectedDate(null); // Reset date filter when switching to bookings tab
+    }
     if (activeTab === "users") fetchUsers();
     if (activeTab === "services") fetchServices();
   }, [activeTab]);
@@ -49,8 +59,15 @@ export default function AdminDashboard() {
 
   const checkAdmin = () => {
     const userProfile = JSON.parse(localStorage.getItem('userProfile'));
-    if (!userProfile || userProfile.role !== 'admin') {
-      alert("Access denied. Admin only.");
+    if (!userProfile) {
+      navigate("/dashboard");
+      return;
+    }
+    setCurrentUserRole(userProfile.role || 'user');
+    setUserId(userProfile.id || null);
+    // Allow both admin and staff to access, but with different permissions
+    if (userProfile.role !== 'admin' && userProfile.role !== 'staff') {
+      alert("Access denied. Admin or Staff only.");
       navigate("/dashboard");
     }
   };
@@ -86,17 +103,46 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (filterDate = null) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // First, fetch all bookings to populate calendar
+      const { data: allBookings, error: allError } = await supabase
+        .from('bookings')
+        .select('pickup_date')
+        .not('pickup_date', 'is', null);
+      
+      if (allError) throw allError;
+      
+      // Group all bookings by pickup date for calendar
+      const grouped = {};
+      (allBookings || []).forEach(booking => {
+        if (booking.pickup_date) {
+          const dateKey = booking.pickup_date;
+          if (!grouped[dateKey]) {
+            grouped[dateKey] = [];
+          }
+          grouped[dateKey].push(booking);
+        }
+      });
+      setBookingsByDate(grouped);
+      
+      // Now fetch detailed bookings (filtered by date if provided)
+      let query = supabase
         .from('bookings')
         .select(`
           *,
           profiles:user_id (name, email),
           services:service_id (name, price, unit)
-        `)
-        .order('created_at', { ascending: false });
+        `);
+      
+      if (filterDate) {
+        query = query.eq('pickup_date', filterDate);
+      }
+      
+      const { data, error } = await query
+        .order('pickup_date', { ascending: true })
+        .order('pickup_time', { ascending: true });
 
       if (error) throw error;
       setBookings(data || []);
@@ -155,14 +201,63 @@ export default function AdminDashboard() {
       
       alert(`Booking status updated to ${newStatus}`);
       fetchBookings();
+      if (selectedBooking && selectedBooking.id === bookingId) {
+        setSelectedBooking({ ...selectedBooking, status: newStatus });
+      }
     } catch (error) {
       console.error("Error updating booking:", error);
       alert("Failed to update booking status");
     }
   };
 
+  const confirmPayment = async (bookingId) => {
+    if (!confirm("Confirm payment for this booking? This will mark the payment as paid and the user will see this update in their history.")) return;
+    
+    try {
+      const paymentId = `PMT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      
+      // Get current user info for staff confirmation
+      const userProfile = JSON.parse(localStorage.getItem('userProfile'));
+      const confirmedBy = userProfile?.name || userProfile?.email || 'Staff';
+      
+      const { error } = await supabase
+        .from('bookings')
+        .update({ 
+          payment_status: 'paid',
+          payment_id: paymentId,
+          payment_method: `Confirmed by ${confirmedBy}`,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', bookingId);
+
+      if (error) throw error;
+      
+      alert("Payment confirmed successfully! The user will see this update in their history.");
+      fetchBookings();
+      
+      // Update selected booking if it's the same one
+      if (selectedBooking && selectedBooking.id === bookingId) {
+        setSelectedBooking({ 
+          ...selectedBooking, 
+          payment_status: 'paid',
+          payment_id: paymentId,
+          payment_method: `Confirmed by ${confirmedBy}`
+        });
+      }
+    } catch (error) {
+      console.error("Error confirming payment:", error);
+      alert("Failed to confirm payment. Please try again.");
+    }
+  };
+
   const deleteUser = async (userId) => {
     if (!confirm("Are you sure you want to delete this user?")) return;
+    
+    // Only admins can delete users
+    if (currentUserRole !== 'admin') {
+      alert("Only admins can delete users");
+      return;
+    }
     
     try {
       const { error } = await supabase
@@ -177,6 +272,56 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error("Error deleting user:", error);
       alert("Failed to delete user");
+    }
+  };
+
+  const promoteToStaff = async (userId) => {
+    if (!confirm("Promote this user to staff? Staff can manage bookings and view all orders.")) return;
+    
+    // Only admins can promote users
+    if (currentUserRole !== 'admin') {
+      alert("Only admins can promote users to staff");
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: 'staff' })
+        .eq('id', userId);
+
+      if (error) throw error;
+      
+      alert("User promoted to staff successfully");
+      fetchUsers();
+    } catch (error) {
+      console.error("Error promoting user:", error);
+      alert("Failed to promote user");
+    }
+  };
+
+  const demoteToUser = async (userId) => {
+    if (!confirm("Demote this staff member to regular user?")) return;
+    
+    // Only admins can demote staff
+    if (currentUserRole !== 'admin') {
+      alert("Only admins can demote staff");
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: 'user' })
+        .eq('id', userId);
+
+      if (error) throw error;
+      
+      alert("Staff demoted to user successfully");
+      fetchUsers();
+    } catch (error) {
+      console.error("Error demoting staff:", error);
+      alert("Failed to demote staff");
     }
   };
 
@@ -264,6 +409,20 @@ export default function AdminDashboard() {
     );
   };
 
+  const getPaymentStatusBadge = (paymentStatus) => {
+    if (!paymentStatus) return null;
+    const colors = {
+      paid: "bg-green-100 text-green-700",
+      unpaid: "bg-orange-100 text-orange-700",
+      refunded: "bg-gray-100 text-gray-700"
+    };
+    return (
+      <span className={`px-3 py-1 rounded-full text-xs font-medium ${colors[paymentStatus] || "bg-gray-100 text-gray-700"}`}>
+        {paymentStatus}
+      </span>
+    );
+  };
+
   const StatCard = ({ icon: Icon, label, value, color }) => (
     <div className="bg-white rounded-2xl p-6 shadow hover:shadow-lg transition">
       <div className="flex items-center justify-between">
@@ -281,23 +440,38 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-blue-50 flex flex-col relative">
       {/* Header */}
-      <div className="bg-white shadow-sm px-4 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/dashboard")} className="p-2 rounded-full hover:bg-gray-100 transition cursor-pointer">
-            <ChevronLeft className="w-6 h-6 text-gray-700" />
+      <div className="bg-white shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+          <button onClick={() => navigate("/dashboard")} className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition cursor-pointer touch-manipulation flex-shrink-0">
+            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
           </button>
-          <h1 className="text-xl sm:text-2xl font-bold text-blue-500">Admin Dashboard</h1>
+          <h1 className="text-base sm:text-xl md:text-2xl font-bold text-blue-500 truncate">
+            <span className="hidden sm:inline">
+              {currentUserRole === 'admin' ? 'Admin Dashboard' : 'Staff Dashboard'}
+            </span>
+            <span className="sm:hidden">
+              {currentUserRole === 'admin' ? 'Admin' : 'Staff'}
+            </span>
+          </h1>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {userId && <Notifications userId={userId} />}
+          {currentUserRole === 'staff' && (
+            <span className="hidden sm:inline px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+              Staff Mode
+            </span>
+          )}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="bg-white shadow-sm px-4 py-3 flex gap-2 overflow-x-auto">
         {[
-          { id: "overview", label: "Overview" },
-          { id: "bookings", label: "Bookings" },
-          { id: "users", label: "Users" },
-          { id: "services", label: "Services" }
-        ].map(tab => (
+          { id: "overview", label: "Overview", roles: ['admin', 'staff'] },
+          { id: "bookings", label: "Bookings", roles: ['admin', 'staff'] },
+          { id: "users", label: "Users", roles: ['admin'] },
+          { id: "services", label: "Services", roles: ['admin', 'staff'] }
+        ].filter(tab => tab.roles.includes(currentUserRole)).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -334,89 +508,272 @@ export default function AdminDashboard() {
 
             {/* Bookings Tab */}
             {activeTab === "bookings" && (
-              <div className="space-y-4">
-                {bookings.length === 0 ? (
-                  <p className="text-center text-gray-500">No bookings yet</p>
-                ) : (
-                  bookings.map(booking => (
-                    <div key={booking.id} className="bg-white rounded-2xl p-4 shadow hover:shadow-md transition">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <p className="font-semibold text-gray-800">{booking.order_id}</p>
-                            {getStatusBadge(booking.status)}
-                          </div>
-                          <p className="text-sm text-gray-600">Customer: {booking.profiles?.name || "N/A"}</p>
-                          <p className="text-sm text-gray-600">Service: {booking.services?.name || "N/A"}</p>
-                          <p className="text-sm text-gray-600">
-                            Pickup: {formatDate(booking.pickup_date)} at {formatTime(booking.pickup_time)}
-                          </p>
-                          <p className="text-sm font-medium text-gray-800 mt-1">Total: ₱{booking.total_price}</p>
-                        </div>
+              <div className="space-y-6">
+                {/* Calendar View */}
+                <div className="bg-white rounded-2xl p-4 shadow">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-blue-500" />
+                      Booking Calendar
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition"
+                      >
+                        <ChevronLeftIcon className="w-5 h-5 text-gray-600" />
+                      </button>
+                      <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">
+                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition"
+                      >
+                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                      </button>
+                      {selectedDate && (
+                        <button
+                          onClick={() => {
+                            setSelectedDate(null);
+                            fetchBookings(null);
+                          }}
+                          className="ml-2 px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                        >
+                          Clear Filter
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Calendar Grid */}
+                  <div className="grid grid-cols-7 gap-1 mb-2">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                      <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="grid grid-cols-7 gap-1">
+                    {(() => {
+                      const year = currentMonth.getFullYear();
+                      const month = currentMonth.getMonth();
+                      const firstDay = new Date(year, month, 1);
+                      const lastDay = new Date(year, month + 1, 0);
+                      const daysInMonth = lastDay.getDate();
+                      const startingDayOfWeek = firstDay.getDay();
+                      
+                      const days = [];
+                      
+                      // Empty cells for days before the first day of the month
+                      for (let i = 0; i < startingDayOfWeek; i++) {
+                        days.push(null);
+                      }
+                      
+                      // Days of the month
+                      for (let day = 1; day <= daysInMonth; day++) {
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const dateBookings = bookingsByDate[dateStr] || [];
+                        const isSelected = selectedDate === dateStr;
+                        const isToday = dateStr === new Date().toISOString().split('T')[0];
                         
-                        <div className="flex flex-wrap gap-2">
+                        days.push(
                           <button
-                            onClick={() => setSelectedBooking(booking)}
-                            className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                            key={day}
+                            onClick={() => {
+                              setSelectedDate(dateStr);
+                              fetchBookings(dateStr);
+                            }}
+                            className={`relative p-2 rounded-lg transition text-sm font-medium ${
+                              isSelected
+                                ? 'bg-blue-500 text-white'
+                                : isToday
+                                ? 'bg-blue-100 text-blue-700'
+                                : dateBookings.length > 0
+                                ? 'bg-green-50 text-gray-700 hover:bg-green-100'
+                                : 'text-gray-700 hover:bg-gray-100'
+                            }`}
                           >
-                            <Eye className="w-4 h-4" />
+                            {day}
+                            {dateBookings.length > 0 && (
+                              <span className={`absolute top-0 right-0 w-2 h-2 rounded-full ${
+                                isSelected ? 'bg-white' : 'bg-green-500'
+                              }`}></span>
+                            )}
+                            {dateBookings.length > 0 && (
+                              <span className={`absolute -bottom-1 left-1/2 transform -translate-x-1/2 text-[8px] ${
+                                isSelected ? 'text-white' : 'text-green-600 font-bold'
+                              }`}>
+                                {dateBookings.length}
+                              </span>
+                            )}
                           </button>
-                          {booking.status === 'pending' && (
+                        );
+                      }
+                      
+                      return days;
+                    })()}
+                  </div>
+                  
+                  {selectedDate && (
+                    <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        Showing bookings for: <strong>{new Date(selectedDate).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bookings List */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    {selectedDate ? `Bookings for ${new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : 'All Bookings'}
+                  </h3>
+                  {bookings.length === 0 ? (
+                    <p className="text-center text-gray-500 py-8">No bookings {selectedDate ? 'for this date' : 'yet'}</p>
+                  ) : (
+                    bookings.map(booking => (
+                      <div key={booking.id} className="bg-white rounded-2xl p-4 shadow hover:shadow-md transition">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <p className="font-semibold text-gray-800">{booking.order_id}</p>
+                              {getStatusBadge(booking.status)}
+                              {getPaymentStatusBadge(booking.payment_status)}
+                            </div>
+                            <p className="text-sm text-gray-600">Customer: {booking.profiles?.name || "N/A"}</p>
+                            <p className="text-sm text-gray-600">Service: {booking.services?.name || "N/A"}</p>
+                            <p className="text-sm text-gray-600">
+                              Pickup: {formatDate(booking.pickup_date)} at {formatTime(booking.pickup_time)}
+                            </p>
+                            <p className="text-sm font-medium text-gray-800 mt-1">Total: ₱{booking.total_price}</p>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => updateBookingStatus(booking.id, 'confirmed')}
-                              className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                          )}
-                          {booking.status === 'confirmed' && (
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'in_progress')}
-                              className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition cursor-pointer"
-                            >
-                              <Clock className="w-4 h-4" />
-                            </button>
-                          )}
-                          {booking.status === 'in_progress' && (
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'completed')}
+                              onClick={() => setSelectedBooking(booking)}
                               className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                              title="View Details"
                             >
-                              <CheckCircle className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </button>
-                          )}
+                            {/* Staff: Confirm Payment Button */}
+                            {(currentUserRole === 'staff' || currentUserRole === 'admin') && booking.payment_status === 'unpaid' && (
+                              <button
+                                onClick={() => confirmPayment(booking.id)}
+                                className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
+                                title="Confirm Payment"
+                              >
+                                <CreditCard className="w-4 h-4" />
+                                <span>Pay</span>
+                              </button>
+                            )}
+                            {booking.status === 'pending' && (
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'confirmed')}
+                                className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
+                                title="Confirm Booking"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
+                            {booking.status === 'confirmed' && (
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'in_progress')}
+                                className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition cursor-pointer"
+                                title="Start Processing"
+                              >
+                                <Clock className="w-4 h-4" />
+                              </button>
+                            )}
+                            {booking.status === 'in_progress' && (
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'completed')}
+                                className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                                title="Mark as Completed"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
             )}
 
             {/* Users Tab */}
             {activeTab === "users" && (
               <div className="space-y-4">
+                {currentUserRole === 'admin' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-blue-800">
+                      <strong>Admin Actions:</strong> You can promote users to staff or demote staff to users. 
+                      Only admins can delete users.
+                    </p>
+                  </div>
+                )}
                 {users.length === 0 ? (
                   <p className="text-center text-gray-500">No users yet</p>
                 ) : (
                   users.map(user => (
                     <div key={user.id} className="bg-white rounded-2xl p-4 shadow hover:shadow-md transition">
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="flex-1">
                           <p className="font-semibold text-gray-800">{user.name || "No name"}</p>
                           <p className="text-sm text-gray-600">{user.email}</p>
-                          <span className={`inline-block mt-1 px-2 py-1 rounded-full text-xs font-medium ${
-                            user.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {user.role}
-                          </span>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                              user.role === 'admin' ? 'bg-red-100 text-red-700' : 
+                              user.role === 'staff' ? 'bg-green-100 text-green-700' : 
+                              'bg-blue-100 text-blue-700'
+                            }`}>
+                              {user.role}
+                            </span>
+                            {user.role === 'staff' && (
+                              <span className="text-xs text-gray-500">Can manage bookings</span>
+                            )}
+                          </div>
                         </div>
-                        <button
-                          onClick={() => deleteUser(user.id)}
-                          className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {currentUserRole === 'admin' && (
+                            <>
+                              {user.role === 'user' && (
+                                <button
+                                  onClick={() => promoteToStaff(user.id)}
+                                  className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
+                                  title="Promote to Staff"
+                                >
+                                  <Users className="w-4 h-4" />
+                                </button>
+                              )}
+                              {user.role === 'staff' && (
+                                <button
+                                  onClick={() => demoteToUser(user.id)}
+                                  className="p-2 bg-yellow-100 text-yellow-600 rounded-lg hover:bg-yellow-200 transition cursor-pointer"
+                                  title="Demote to User"
+                                >
+                                  <Users className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => deleteUser(user.id)}
+                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
+                                title="Delete User"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -427,6 +784,13 @@ export default function AdminDashboard() {
             {/* Services Tab */}
             {activeTab === "services" && (
               <div className="space-y-4">
+                {currentUserRole !== 'admin' && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-yellow-800">
+                      <strong>Staff View:</strong> You can view services but only admins can manage them.
+                    </p>
+                  </div>
+                )}
                 {services.length === 0 ? (
                   <p className="text-center text-gray-500">No services yet</p>
                 ) : (
@@ -443,16 +807,18 @@ export default function AdminDashboard() {
                             {service.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </div>
-                        <button
-                          onClick={() => toggleServiceStatus(service.id, service.is_active)}
-                          className={`p-2 rounded-lg transition cursor-pointer ${
-                            service.is_active 
-                              ? 'bg-red-100 text-red-600 hover:bg-red-200' 
-                              : 'bg-green-100 text-green-600 hover:bg-green-200'
-                          }`}
-                        >
-                          {service.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                        </button>
+                        {currentUserRole === 'admin' && (
+                          <button
+                            onClick={() => toggleServiceStatus(service.id, service.is_active)}
+                            className={`p-2 rounded-lg transition cursor-pointer ${
+                              service.is_active 
+                                ? 'bg-red-100 text-red-600 hover:bg-red-200' 
+                                : 'bg-green-100 text-green-600 hover:bg-green-200'
+                            }`}
+                          >
+                            {service.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))
@@ -473,37 +839,37 @@ export default function AdminDashboard() {
             <div className="space-y-3">
               <div className="flex justify-between">
                 <p className="text-gray-500">Order ID:</p>
-                <p className="font-semibold">{selectedBooking.order_id}</p>
+                <p className="font-semibold">{selectedBooking?.order_id || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Customer:</p>
-                <p className="font-semibold">{selectedBooking.profiles?.name || "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.profiles?.name || selectedBooking?.profiles?.email || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Email:</p>
-                <p className="font-semibold text-sm">{selectedBooking.profiles?.email || "N/A"}</p>
+                <p className="font-semibold text-sm">{selectedBooking?.profiles?.email || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Service:</p>
-                <p className="font-semibold">{selectedBooking.services?.name || "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.services?.name || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Quantity:</p>
-                <p className="font-semibold">{selectedBooking.quantity}</p>
+                <p className="font-semibold">{selectedBooking?.quantity || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Pickup Date:</p>
-                <p className="font-semibold">{formatDate(selectedBooking.pickup_date)}</p>
+                <p className="font-semibold">{selectedBooking?.pickup_date ? formatDate(selectedBooking.pickup_date) : "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Pickup Time:</p>
-                <p className="font-semibold">{formatTime(selectedBooking.pickup_time)}</p>
+                <p className="font-semibold">{selectedBooking?.pickup_time ? formatTime(selectedBooking.pickup_time) : "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Payment Method:</p>
-                <p className="font-semibold">{selectedBooking.payment_method || "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.payment_method || "N/A"}</p>
               </div>
-              {selectedBooking.payment_id && (
+              {selectedBooking?.payment_id && (
                 <div className="flex justify-between">
                   <p className="text-gray-500">Payment ID:</p>
                   <p className="font-semibold">{selectedBooking.payment_id}</p>
@@ -512,24 +878,33 @@ export default function AdminDashboard() {
               <div className="flex justify-between">
                 <p className="text-gray-500">Payment Status:</p>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  selectedBooking.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                  selectedBooking.payment_status === 'unpaid' ? 'bg-yellow-100 text-yellow-700' :
+                  selectedBooking?.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                  selectedBooking?.payment_status === 'unpaid' ? 'bg-yellow-100 text-yellow-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
-                  {selectedBooking.payment_status || "N/A"}
+                  {selectedBooking?.payment_status || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Status:</p>
-                {getStatusBadge(selectedBooking.status)}
+                {getStatusBadge(selectedBooking?.status)}
               </div>
               <div className="flex justify-between border-t pt-3">
                 <p className="text-gray-500 font-medium">Total:</p>
-                <p className="font-semibold text-lg">₱{selectedBooking.total_price}</p>
+                <p className="font-semibold text-lg">₱{selectedBooking?.total_price || "0.00"}</p>
               </div>
               <div className="mt-4 flex gap-2 justify-end">
+                {selectedBooking?.payment_status === 'unpaid' && (
+                  <button
+                    onClick={() => selectedBooking?.id && confirmPayment(selectedBooking.id)}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Confirm Payment
+                  </button>
+                )}
                 <button
-                  onClick={() => downloadReceipt(selectedBooking)}
+                  onClick={() => selectedBooking && downloadReceipt(selectedBooking)}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
                 >
                   Download Receipt

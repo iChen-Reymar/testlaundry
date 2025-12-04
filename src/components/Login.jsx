@@ -51,12 +51,35 @@ export default function Login() {
       });
       if (signInError) throw signInError;
 
-      const { data: profile, error: profileError } = await supabase
+      // Try to fetch profile, create if it doesn't exist
+      let { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", data.user.id)
         .single();
-      if (profileError) throw profileError;
+      
+      // If profile doesn't exist, create it
+      if (profileError && (profileError.code === 'PGRST116' || profileError.message?.includes('No rows'))) {
+        const { data: newProfile, error: createError } = await supabase
+          .from("profiles")
+          .insert({
+            id: data.user.id,
+            email: data.user.email || loginData.email,
+            name: data.user.user_metadata?.name || '',
+            role: 'user'
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error("Error creating profile:", createError);
+          throw new Error("Failed to create user profile. Please contact support.");
+        }
+        profile = newProfile;
+      } else if (profileError) {
+        console.error("Profile fetch error:", profileError);
+        throw profileError;
+      }
 
       localStorage.setItem(
         "userProfile",

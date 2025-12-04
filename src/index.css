@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* Custom styles for date/time picker availability indicators */
+input[type="date"]:disabled,
+input[type="time"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Style date input when fully booked */
+input[type="date"].date-full {
+  border-color: rgb(239 68 68) !important;
+  background-color: rgb(254 242 242) !important;
+}
+
+/* Style date input when warning */
+input[type="date"].date-warning {
+  border-color: rgb(234 179 8) !important;
+  background-color: rgb(254 252 232) !important;
+}
+
+/* Style time input when fully booked */
+input[type="time"].time-full {
+  border-color: rgb(239 68 68) !important;
+  background-color: rgb(254 242 242) !important;
+}
+
+/* Style time input when warning */
+input[type="time"].time-warning {
+  border-color: rgb(234 179 8) !important;
+  background-color: rgb(254 252 232) !important;
+}

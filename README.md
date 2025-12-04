@@ -1,20 +1,113 @@
-# React + Vite
+# Laundry Connect - Complete System
 
-## Live Demo
+A comprehensive laundry service management system with role-based access control.
 
-The live app here: [Laundry Connect Finals](https://laundry-connect-finals.vercel.app/)
+## 🚀 Quick Start
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+### 1. Database Setup
 
-Currently, two official plugins are available:
+1. Open your Supabase project
+2. Go to **SQL Editor**
+3. Copy and paste the entire contents of `database_schema.sql`
+4. Click **Run**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+See `DATABASE_SETUP.md` for detailed instructions.
 
-## React Compiler
+### 2. Create Your First Admin
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+After running the schema, sign up a user, then run:
 
-## Expanding the ESLint configuration
+```sql
+UPDATE profiles
+SET role = 'admin'
+WHERE email = 'your-email@example.com';
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 3. Start the Application
+
+```bash
+npm install
+npm run dev
+```
+
+## 👥 User Roles
+
+### **Admin** (`admin`)
+- Full system access
+- Manage users (promote to staff, demote, delete)
+- Manage services (create, edit, delete)
+- View and manage all bookings
+- Access to Admin Dashboard
+
+### **Staff** (`staff`)
+- View all bookings
+- Update booking statuses
+- View all users (read-only)
+- View services (read-only)
+- Access to Staff Dashboard (limited features)
+- **Cannot** delete users or manage services
+
+### **User** (`user`)
+- View active services
+- Create bookings
+- View own booking history
+- Update own profile
+- **Cannot** access admin/staff dashboard
+
+## 📁 Project Structure
+
+```
+Laundry_Connect_Finals/
+├── database_schema.sql          # Complete database schema
+├── DATABASE_SETUP.md            # Database setup guide
+├── IMPLEMENTATION_SUMMARY.md    # Implementation details
+├── src/
+│   ├── components/
+│   │   ├── Dashboard.jsx        # Main dashboard (with staff button)
+│   │   ├── AdminDashboard.jsx  # Admin/Staff dashboard
+│   │   ├── Profile.jsx          # User profile
+│   │   └── ...
+│   ├── context/
+│   │   └── authcontext.jsx      # Auth utilities
+│   └── lib/
+│       └── supabaseClient.js   # Supabase client
+└── README.md
+```
+
+## 🔐 Security Features
+
+- **Row Level Security (RLS)**: Database-level access control
+- **Role-based permissions**: Frontend and backend validation
+- **Secure authentication**: Supabase Auth integration
+
+## 📚 Documentation
+
+- **`DATABASE_SETUP.md`**: Step-by-step database setup
+- **`IMPLEMENTATION_SUMMARY.md`**: Complete feature documentation
+- **`database_schema.sql`**: Database schema with comments
+
+## 🎯 Key Features
+
+✅ Role-based access control (Admin, Staff, User)  
+✅ Staff management (promote/demote users)  
+✅ Booking management system  
+✅ Service management (admin only)  
+✅ User profile management  
+✅ Secure authentication  
+✅ Responsive design  
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React + Vite
+- **Backend**: Supabase (PostgreSQL)
+- **Authentication**: Supabase Auth
+- **Storage**: Supabase Storage (for profile images)
+
+## 📝 Notes
+
+- All new users are created as 'user' by default
+- Only admins can promote users to staff
+- Staff can manage bookings but cannot delete users
+- Users can only view and book active services
+
+For detailed implementation information, see `IMPLEMENTATION_SUMMARY.md`.

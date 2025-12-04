@@ -395,6 +395,12 @@ export default function Profile() {
                     Admin
                   </span>
                 )}
+                {profile.role === 'staff' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                    <Sparkles className="w-3 h-3" />
+                    Staff
+                  </span>
+                )}
               </div>
             </div>
 
@@ -429,13 +435,13 @@ export default function Profile() {
                 Edit Profile
               </button>
 
-              {profile.role === 'admin' && (
+              {(profile.role === 'admin' || profile.role === 'staff') && (
                 <button
                   onClick={() => navigate("/admindashboard")}
                   className="w-full py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2"
                 >
                   <Shield className="w-4 h-4" />
-                  Admin Dashboard
+                  {profile.role === 'admin' ? 'Admin Dashboard' : 'Staff Dashboard'}
                 </button>
               )}
 
