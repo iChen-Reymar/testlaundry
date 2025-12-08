@@ -35,11 +35,13 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
   const [userRole, setUserRole] = useState('user');
   const [bookingAvailability, setBookingAvailability] = useState({});
-  const [maxBookingsPerDay] = useState(10); // Maximum bookings per day
+  const [maxBookingsPerDay] = useState(20); // Maximum bookings per day
   const [maxBookingsPerTimeWindow] = useState(5); // Maximum bookings per 2-hour time window
-  const [dayWarningThreshold] = useState(7); // Yellow warning when 7+ bookings per day
+  const [dayWarningThreshold] = useState(15); // Yellow warning when 15+ bookings per day
   const [timeWarningThreshold] = useState(3); // Yellow warning when 3+ bookings per time window
   const [timeWindowHours] = useState(2); // 2-hour time windows
+  const [openingHour] = useState(8); // 8 AM
+  const [closingHour] = useState(20); // 8 PM (20:00)
 
   // Map service names to icons (fallback)
   const serviceIcons = {
@@ -216,9 +218,21 @@ export default function Dashboard() {
     return { status: 'available', count: totalBookings, remaining: maxBookingsPerDay - totalBookings };
   };
 
+  // Check if time is within working hours (8 AM - 8 PM)
+  const isWithinWorkingHours = (time) => {
+    if (!time) return true;
+    const hour = parseInt(time.split(':')[0], 10);
+    return hour >= openingHour && hour < closingHour;
+  };
+
   // Get availability status for a specific time (max 5 bookings per 2-hour window)
   const getTimeAvailability = (date, time) => {
     if (!date || !time) return { status: 'available', count: 0, windowInfo: null, remaining: maxBookingsPerTimeWindow };
+    
+    // Check if time is outside working hours
+    if (!isWithinWorkingHours(time)) {
+      return { status: 'closed', count: 0, windowInfo: 'Outside working hours (8AM-8PM)', remaining: 0 };
+    }
     
     const timeWindow = getTimeWindowStart(time);
     const count = bookingAvailability[date]?.[timeWindow] || 0;
@@ -233,15 +247,18 @@ export default function Dashboard() {
     return { status: 'available', count, windowInfo, remaining: maxBookingsPerTimeWindow - count };
   };
 
-  // Check if date is disabled (max 10 bookings per day reached)
+  // Check if date is disabled (max 20 bookings per day reached)
   const isDateDisabled = (date) => {
     const availability = getDateAvailability(date);
     return availability.status === 'full';
   };
 
-  // Check if time is disabled (max 5 bookings per 2-hour window reached)
+  // Check if time is disabled (outside working hours or max bookings reached)
   const isTimeDisabled = (date, time) => {
-    // First check if date is full
+    // First check if time is outside working hours
+    if (!isWithinWorkingHours(time)) return true;
+    
+    // Check if date is full
     const dateAvail = getDateAvailability(date);
     if (dateAvail.status === 'full') return true;
     
@@ -367,6 +384,12 @@ export default function Dashboard() {
     if (!userId) {
       alert("Please login to place an order");
       navigate("/login");
+      return;
+    }
+
+    // Validate working hours (8 AM - 8 PM)
+    if (booking.pickupTime && !isWithinWorkingHours(booking.pickupTime)) {
+      alert("Booking is only available from 8:00 AM to 8:00 PM. Please select a valid pickup time.");
       return;
     }
 
@@ -799,25 +822,26 @@ export default function Dashboard() {
 
             <div className="space-y-4">
               {/* Availability Legend */}
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p className="text-xs font-semibold text-gray-700 mb-2">Booking Limits:</p>
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <p className="text-xs font-semibold text-blue-800 mb-2">📅 Booking Information</p>
                 <div className="flex flex-col gap-1.5 text-xs">
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full bg-blue-500"></div>
-                    <span className="text-gray-600"><strong>Per Day:</strong> Max 10 bookings</span>
+                    <span className="text-lg">🕐</span>
+                    <span className="text-gray-700"><strong>Hours:</strong> 8:00 AM - 8:00 PM</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full bg-purple-500"></div>
-                    <span className="text-gray-600"><strong>Per Time:</strong> Max 5 bookings per 2-hour window</span>
+                    <span className="text-lg">📆</span>
+                    <span className="text-gray-700"><strong>Daily Limit:</strong> 20 bookings/day</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⏰</span>
+                    <span className="text-gray-700"><strong>Per Window:</strong> 5 bookings/2hrs</span>
                   </div>
                 </div>
-                <div className="border-t border-gray-200 mt-2 pt-2">
-                  <p className="text-[10px] text-gray-500">
-                    🟢 Available &nbsp; 🟡 Almost Full &nbsp; 🔴 Full
-                  </p>
-                  <p className="text-[10px] text-gray-500 mt-1">
-                    Time windows: 12-2AM, 2-4AM, 4-6AM... etc.
-                  </p>
+                <div className="border-t border-blue-200 mt-2 pt-2 flex flex-wrap gap-2 text-[10px]">
+                  <span className="text-green-600">🟢 Available</span>
+                  <span className="text-yellow-600">🟡 Almost Full</span>
+                  <span className="text-red-600">🔴 Full</span>
                 </div>
               </div>
 
@@ -933,12 +957,11 @@ export default function Dashboard() {
                   })()}
                 </label>
                 <div className="relative">
-                  <input 
-                    type="time" 
-                    value={bookingForm.pickupTime} 
+                  <select
+                    value={bookingForm.pickupTime}
                     onChange={(e) => {
                       const selectedTime = e.target.value;
-                      if (bookingForm.pickupDate && isTimeDisabled(bookingForm.pickupDate, selectedTime)) {
+                      if (bookingForm.pickupDate && selectedTime && isTimeDisabled(bookingForm.pickupDate, selectedTime)) {
                         const availability = getTimeAvailability(bookingForm.pickupDate, selectedTime);
                         alert(`The time window ${availability.windowInfo} is fully booked (5/5). Please select a time in a different 2-hour window.`);
                         return;
@@ -946,7 +969,7 @@ export default function Dashboard() {
                       setBookingForm({ ...bookingForm, pickupTime: selectedTime });
                     }}
                     disabled={!bookingForm.pickupDate}
-                    className={`w-full border rounded-lg px-4 py-3 pr-10 text-gray-600 focus:outline-none focus:ring-2 transition ${
+                    className={`w-full border rounded-lg px-4 py-3 pr-10 text-gray-600 focus:outline-none focus:ring-2 transition appearance-none cursor-pointer ${
                       !bookingForm.pickupDate 
                         ? 'border-gray-300 bg-gray-100 cursor-not-allowed' 
                         : bookingForm.pickupTime ? (() => {
@@ -959,7 +982,35 @@ export default function Dashboard() {
                             return 'border-blue-300 focus:ring-blue-400';
                           })() : 'border-blue-300 focus:ring-blue-400'
                     }`}
-                  />
+                  >
+                    <option value="">Select pickup time</option>
+                    {/* Generate time slots from 8 AM to 8 PM (every 30 minutes) */}
+                    {Array.from({ length: 25 }, (_, i) => {
+                      const hour = Math.floor(i / 2) + 8;
+                      const minute = (i % 2) * 30;
+                      if (hour >= 20 && minute > 0) return null; // Stop at 8:00 PM
+                      const timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                      const displayHour = hour > 12 ? hour - 12 : hour;
+                      const ampm = hour >= 12 ? 'PM' : 'AM';
+                      const displayTime = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+                      
+                      // Check availability for this time slot
+                      const availability = bookingForm.pickupDate ? getTimeAvailability(bookingForm.pickupDate, timeValue) : null;
+                      const isFull = availability?.status === 'full';
+                      const isWarning = availability?.status === 'warning';
+                      
+                      return (
+                        <option 
+                          key={timeValue} 
+                          value={timeValue}
+                          disabled={isFull}
+                          className={isFull ? 'text-red-500' : isWarning ? 'text-yellow-600' : ''}
+                        >
+                          {displayTime} {isFull ? '(Full)' : isWarning ? `(${availability.remaining} left)` : ''}
+                        </option>
+                      );
+                    }).filter(Boolean)}
+                  </select>
                   <Clock className={`absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none ${
                     !bookingForm.pickupDate 
                       ? 'text-gray-300' 
@@ -970,14 +1021,14 @@ export default function Dashboard() {
                           } else if (availability.status === 'warning') {
                             return 'text-yellow-500';
                           }
-                          return 'text-gray-400';
+                          return 'text-blue-500';
                         })() : 'text-gray-400'
                   }`} />
                 </div>
                 {bookingForm.pickupDate && bookingForm.pickupTime && (() => {
                   const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
                   if (availability.status === 'full') {
-                    return <p className="text-xs text-red-600 mt-1">⚠️ Time window {availability.windowInfo} is fully booked (5/5). Please choose a different time window.</p>;
+                    return <p className="text-xs text-red-600 mt-1">⚠️ Time window {availability.windowInfo} is fully booked (5/5). Please choose a different time.</p>;
                   } else if (availability.status === 'warning') {
                     return <p className="text-xs text-yellow-600 mt-1">⚠️ Time window {availability.windowInfo} has {availability.count}/5 bookings. Only {availability.remaining} slot(s) left!</p>;
                   } else if (availability.remaining) {
