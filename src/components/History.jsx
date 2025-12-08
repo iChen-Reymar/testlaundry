@@ -192,112 +192,111 @@ export default function History() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col px-4 py-6">
+    <div className="min-h-screen bg-gray-50 flex flex-col px-3 sm:px-4 py-4 sm:py-6">
       {/* Simple Header */}
-      <div className="max-w-2xl mx-auto w-full mb-6">
-        <div className="flex items-center gap-4 mb-6">
-      <button
-        onClick={() => navigate("/dashboard")}
-            className="p-2 rounded-lg hover:bg-gray-100 transition"
-      >
+      <div className="max-w-2xl mx-auto w-full mb-4 sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-4 mb-4 sm:mb-6">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition flex-shrink-0"
+          >
             <ChevronLeft className="w-5 h-5 text-gray-600" />
-      </button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-semibold text-gray-900">Booking History</h1>
-            <p className="text-gray-600 text-sm mt-1">View all your past orders</p>
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">Booking History</h1>
+            <p className="text-gray-600 text-xs sm:text-sm mt-0.5 sm:mt-1">View all your past orders</p>
           </div>
           {userRole === 'admin' && (
-            <span className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-medium">
+            <span className="px-2 sm:px-3 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] sm:text-xs font-medium flex-shrink-0">
               Admin
             </span>
           )}
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto w-full space-y-3">
+      <div className="max-w-2xl mx-auto w-full space-y-2 sm:space-y-3">
         {loading ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-gray-100">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600 text-sm">Loading...</p>
+          <div className="bg-white rounded-xl shadow-sm p-8 sm:p-12 text-center border border-gray-100">
+            <div className="inline-block animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-2 border-blue-500 border-t-transparent"></div>
+            <p className="mt-3 sm:mt-4 text-gray-600 text-xs sm:text-sm">Loading...</p>
           </div>
         ) : history.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center border border-gray-100">
-            <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-600 font-medium">No orders yet</p>
-            <p className="text-gray-500 text-sm mt-1">Start booking to see your history</p>
+          <div className="bg-white rounded-xl shadow-sm p-8 sm:p-12 text-center border border-gray-100">
+            <Package className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-600 font-medium text-sm sm:text-base">No orders yet</p>
+            <p className="text-gray-500 text-xs sm:text-sm mt-1">Start booking to see your history</p>
           </div>
         ) : (
           history.map((order) => (
             <div 
               key={order.id} 
-              className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all p-4 border border-gray-100"
+              className="bg-white rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all p-3 sm:p-4 border border-gray-100"
             >
-              <div className="flex justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-2">
-              <div>
-                      <p className="font-semibold text-gray-900">{order.orderId}</p>
-                      <p className="text-gray-500 text-xs mt-1">{order.date}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => navigate("/receipt", { state: order })}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                        title="View Receipt"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(order.id, order.user_id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                        title={userRole === 'admin' ? 'Delete (Admin)' : 'Remove from history'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+              <div className="flex flex-col gap-2 sm:gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-gray-900 text-sm sm:text-base truncate">{order.orderId}</p>
+                    <p className="text-gray-500 text-[10px] sm:text-xs mt-0.5">{order.date}</p>
                   </div>
+                  <div className="flex gap-1 sm:gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => navigate("/receipt", { state: order })}
+                      className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                      title="View Receipt"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(order.id, order.user_id)}
+                      className="p-1.5 sm:p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                      title={userRole === 'admin' ? 'Delete (Admin)' : 'Remove from history'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
 
-                  {userRole === 'admin' && (
-                    <p className="text-gray-600 text-xs mb-2">
-                      {order.customerName} • {order.customerEmail}
-                    </p>
-                  )}
+                {userRole === 'admin' && (
+                  <p className="text-gray-600 text-[10px] sm:text-xs truncate">
+                    {order.customerName} • {order.customerEmail}
+                  </p>
+                )}
 
-                  <p className="text-gray-700 text-sm mb-2">
+                <p className="text-gray-700 text-xs sm:text-sm line-clamp-2">
                   {order.services
                     .map(
                       (s) =>
                         `${s.name} ${
                           s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
-                          }`
+                        }`
                     )
                     .join(", ")}
                 </p>
 
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-gray-900">
-                      ₱{order.services.reduce((sum, s) => sum + parseFloat(s.price), 0).toFixed(2)}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        order.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-700'
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                  <p className="font-semibold text-gray-900 text-sm sm:text-base">
+                    ₱{order.services.reduce((sum, s) => sum + parseFloat(s.price), 0).toFixed(2)}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
+                      order.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                      order.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                      order.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {order.status.replace('_', ' ')}
+                    </span>
+                    {order.payment_status && (
+                      <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
+                        order.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                        'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {order.status.replace('_', ' ')}
+                        {order.payment_status}
                       </span>
-                      {order.payment_status && (
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          order.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                          'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {order.payment_status}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
-              </div>
+                </div>
               </div>
             </div>
           ))

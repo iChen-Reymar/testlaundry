@@ -64,11 +64,21 @@ export default function Signup() {
             id: data.user.id,
             email: formData.email,
             name: formData.name,
-            role: 'user'
+            role: 'customer'
           });
 
         if (createError) throw createError;
       }
+
+      // Create customer record with name and email
+      await supabase
+        .from('customers')
+        .upsert({
+          id: data.user.id,
+          name: formData.name,
+          email: formData.email,
+          total_bookings: 0
+        }, { onConflict: 'id' });
 
       // Sign out the user to ensure they need to log in
       await supabase.auth.signOut();

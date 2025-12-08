@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Bell, X, Check, CheckCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
 export default function Notifications({ userId, variant = 'light' }) {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
@@ -49,6 +51,39 @@ export default function Notifications({ userId, variant = 'light' }) {
       fetchNotifications();
     } catch (error) {
       console.error("Error marking notification as read:", error);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    // Mark as read first
+    if (!notification.is_read) {
+      await markAsRead(notification.id);
+    }
+
+    // Close the dropdown
+    setIsOpen(false);
+
+    // Get user role to determine where to navigate
+    const userProfile = JSON.parse(localStorage.getItem('userProfile'));
+    const userRole = userProfile?.role || 'customer';
+
+    // Check if notification is booking-related
+    const isBookingRelated = 
+      notification.title?.toLowerCase().includes('booking') ||
+      notification.title?.toLowerCase().includes('payment') ||
+      notification.title?.toLowerCase().includes('order') ||
+      notification.related_booking_id;
+
+    if (isBookingRelated) {
+      if (userRole === 'admin' || userRole === 'staff') {
+        // Navigate to admin dashboard bookings tab
+        navigate('/admindashboard');
+        // Store a flag to open bookings tab
+        sessionStorage.setItem('openTab', 'bookings');
+      } else {
+        // Navigate to history for customers
+        navigate('/history');
+      }
     }
   };
 
@@ -178,11 +213,7 @@ export default function Notifications({ userId, variant = 'light' }) {
                     className={`p-3 sm:p-4 border-b border-gray-100 hover:bg-gray-50 active:bg-gray-100 transition cursor-pointer ${
                       !notification.is_read ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                     }`}
-                    onClick={() => {
-                      if (!notification.is_read) {
-                        markAsRead(notification.id);
-                      }
-                    }}
+                    onClick={() => handleNotificationClick(notification)}
                   >
                     <div className="flex items-start justify-between gap-2 sm:gap-3">
                       <div className="flex-1 min-w-0">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Camera, X, Trash2, User, Mail, Edit3, LogOut, Shield, Sparkles } from "lucide-react";
+import { ChevronLeft, Camera, X, Trash2, User, Mail, Edit3, LogOut, Shield, Sparkles, Phone, MapPin } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -12,6 +12,8 @@ export default function Profile() {
     email: "",
     image: "",
     role: "user",
+    phone: "",
+    address: "",
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -125,12 +127,28 @@ export default function Profile() {
         return;
       }
 
+      // Fetch customer data for phone and address
+      let customerData = { phone: '', address: '' };
+      if (data.role === 'customer' || data.role === 'user') {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('phone, address')
+          .eq('id', data.id)
+          .single();
+        
+        if (customer) {
+          customerData = customer;
+        }
+      }
+
       localStorage.setItem('userProfile', JSON.stringify({
         id: data.id,
         email: data.email,
         name: data.name,
         role: data.role,
-        profile_image: data.profile_image
+        profile_image: data.profile_image,
+        phone: customerData.phone,
+        address: customerData.address
       }));
 
       setProfile({
@@ -139,6 +157,8 @@ export default function Profile() {
         email: data.email || "",
         image: data.profile_image || "",
         role: data.role || "user",
+        phone: customerData.phone || "",
+        address: customerData.address || "",
       });
 
       setTempProfile({
@@ -147,6 +167,8 @@ export default function Profile() {
         email: data.email || "",
         image: data.profile_image || "",
         role: data.role || "user",
+        phone: customerData.phone || "",
+        address: customerData.address || "",
       });
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -302,13 +324,32 @@ export default function Profile() {
 
       if (error) throw error;
 
+      // Update customer data (phone and address) if user is customer
+      if (tempProfile.role === 'customer' || tempProfile.role === 'user') {
+        const { error: customerError } = await supabase
+          .from('customers')
+          .upsert({
+            id: tempProfile.id,
+            name: tempProfile.name,
+            email: tempProfile.email,
+            phone: tempProfile.phone || null,
+            address: tempProfile.address || null
+          }, { onConflict: 'id' });
+
+        if (customerError) {
+          console.error("Error updating customer data:", customerError);
+        }
+      }
+
       // Update localStorage
       const userProfile = JSON.parse(localStorage.getItem('userProfile'));
       localStorage.setItem('userProfile', JSON.stringify({
         ...userProfile,
         name: tempProfile.name,
         email: tempProfile.email,
-        profile_image: imageUrl
+        profile_image: imageUrl,
+        phone: tempProfile.phone,
+        address: tempProfile.address
       }));
 
       setProfile({
@@ -343,29 +384,29 @@ export default function Profile() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col px-4 py-6">
+    <div className="min-h-screen bg-gray-50 flex flex-col px-3 sm:px-4 py-4 sm:py-6">
       {/* Simple Header */}
-      <div className="max-w-md mx-auto w-full mb-6">
+      <div className="max-w-md mx-auto w-full mb-4 sm:mb-6">
         <button
           onClick={() => navigate("/dashboard")}
-          className="mb-4 p-2 rounded-lg hover:bg-gray-100 transition"
+          className="mb-3 sm:mb-4 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition"
         >
           <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
       </div>
 
-      <div className="max-w-md mx-auto w-full bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+      <div className="max-w-md mx-auto w-full bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-200">
         {loading ? (
-          <div className="flex flex-col items-center py-12">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-600 text-sm">Loading...</p>
+          <div className="flex flex-col items-center py-8 sm:py-12">
+            <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3 sm:mb-4"></div>
+            <p className="text-gray-600 text-xs sm:text-sm">Loading...</p>
           </div>
         ) : (
           <>
             {/* Profile Image */}
-            <div className="flex flex-col items-center mb-6">
-              <div className="relative mb-4">
-                <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-gray-200">
+            <div className="flex flex-col items-center mb-4 sm:mb-6">
+              <div className="relative mb-3 sm:mb-4">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-gray-200">
                   {profile.image ? (
                     <>
                       <img src={profile.image} alt="Profile" className="w-full h-full object-cover" />
@@ -380,13 +421,13 @@ export default function Profile() {
                       )}
                     </>
                   ) : (
-                    <User className="w-12 h-12 text-gray-400" />
+                    <User className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400" />
                   )}
                 </div>
               </div>
               
               <div className="text-center">
-                <h1 className="text-xl font-semibold text-gray-900 mb-1">
+                <h1 className="text-lg sm:text-xl font-semibold text-gray-900 mb-1">
                   {profile.name || "User"}
                 </h1>
                 {profile.role === 'admin' && (
@@ -419,6 +460,25 @@ export default function Profile() {
                   {profile.email || "No email set"}
                 </p>
               </div>
+
+              {/* Phone and Address - Only for customers */}
+              {(profile.role === 'customer' || profile.role === 'user') && (
+                <>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">Phone Number</p>
+                    <p className="text-gray-900 font-medium">
+                      {profile.phone || "Not set"}
+                    </p>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">Address</p>
+                    <p className="text-gray-900 font-medium">
+                      {profile.address || "Not set"}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -530,6 +590,37 @@ export default function Profile() {
                   disabled={saving || uploading}
                 />
               </div>
+
+              {/* Phone and Address - Only for customers */}
+              {(tempProfile.role === 'customer' || tempProfile.role === 'user') && (
+                <>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={tempProfile.phone || ''}
+                      onChange={handleChange}
+                      placeholder="Phone Number (e.g., 09123456789)"
+                      className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                    <textarea
+                      name="address"
+                      value={tempProfile.address || ''}
+                      onChange={handleChange}
+                      placeholder="Address"
+                      rows={2}
+                      className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                      disabled={saving || uploading}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="mt-6">

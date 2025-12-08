@@ -35,8 +35,11 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
   const [userRole, setUserRole] = useState('user');
   const [bookingAvailability, setBookingAvailability] = useState({});
-  const [maxBookingsPerSlot] = useState(10); // Maximum bookings per date/time slot
-  const [warningThreshold] = useState(7); // Yellow warning when 7+ bookings
+  const [maxBookingsPerDay] = useState(10); // Maximum bookings per day
+  const [maxBookingsPerTimeWindow] = useState(5); // Maximum bookings per 2-hour time window
+  const [dayWarningThreshold] = useState(7); // Yellow warning when 7+ bookings per day
+  const [timeWarningThreshold] = useState(3); // Yellow warning when 3+ bookings per time window
+  const [timeWindowHours] = useState(2); // 2-hour time windows
 
   // Map service names to icons (fallback)
   const serviceIcons = {
@@ -139,6 +142,27 @@ export default function Dashboard() {
     }
   };
 
+  // Helper function to get 2-hour time window start
+  const getTimeWindowStart = (timeStr) => {
+    if (!timeStr) return null;
+    const [hours] = timeStr.split(':').map(Number);
+    // Round down to nearest 2-hour window (0-2, 2-4, 4-6, etc.)
+    const windowStart = Math.floor(hours / timeWindowHours) * timeWindowHours;
+    return windowStart;
+  };
+
+  // Helper function to format time window for display
+  const formatTimeWindow = (windowStart) => {
+    const startHour = windowStart;
+    const endHour = (windowStart + 2) % 24;
+    const formatHour = (h) => {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const hour12 = h % 12 || 12;
+      return `${hour12}:00 ${period}`;
+    };
+    return `${formatHour(startHour)} - ${formatHour(endHour)}`;
+  };
+
   // Fetch booking availability for dates and times
   const fetchBookingAvailability = async () => {
     try {
@@ -150,22 +174,24 @@ export default function Dashboard() {
 
       if (error) throw error;
 
-      // Count bookings per date/time slot
+      // Count bookings per date and 2-hour time window
       const availability = {};
       
       (bookings || []).forEach(booking => {
         const dateKey = booking.pickup_date;
-        const timeKey = booking.pickup_time?.substring(0, 5) || ''; // Get HH:MM format
+        const timeWindow = getTimeWindowStart(booking.pickup_time);
+        
+        if (timeWindow === null) return;
         
         if (!availability[dateKey]) {
           availability[dateKey] = {};
         }
         
-        if (!availability[dateKey][timeKey]) {
-          availability[dateKey][timeKey] = 0;
+        if (!availability[dateKey][timeWindow]) {
+          availability[dateKey][timeWindow] = 0;
         }
         
-        availability[dateKey][timeKey]++;
+        availability[dateKey][timeWindow]++;
       });
 
       setBookingAvailability(availability);
@@ -174,48 +200,54 @@ export default function Dashboard() {
     }
   };
 
-  // Get availability status for a date
+  // Get availability status for a date (max 10 bookings per day)
   const getDateAvailability = (date) => {
-    if (!date) return { status: 'available', count: 0 };
+    if (!date) return { status: 'available', count: 0, remaining: maxBookingsPerDay };
     
     const dateBookings = bookingAvailability[date] || {};
     const totalBookings = Object.values(dateBookings).reduce((sum, count) => sum + count, 0);
     
-    if (totalBookings >= maxBookingsPerSlot) {
-      return { status: 'full', count: totalBookings };
-    } else if (totalBookings >= warningThreshold) {
-      return { status: 'warning', count: totalBookings };
+    if (totalBookings >= maxBookingsPerDay) {
+      return { status: 'full', count: totalBookings, remaining: 0 };
+    } else if (totalBookings >= dayWarningThreshold) {
+      return { status: 'warning', count: totalBookings, remaining: maxBookingsPerDay - totalBookings };
     }
     
-    return { status: 'available', count: totalBookings };
+    return { status: 'available', count: totalBookings, remaining: maxBookingsPerDay - totalBookings };
   };
 
-  // Get availability status for a date and time
+  // Get availability status for a specific time (max 5 bookings per 2-hour window)
   const getTimeAvailability = (date, time) => {
-    if (!date || !time) return { status: 'available', count: 0 };
+    if (!date || !time) return { status: 'available', count: 0, windowInfo: null, remaining: maxBookingsPerTimeWindow };
     
-    const timeKey = time.substring(0, 5); // Get HH:MM format
-    const count = bookingAvailability[date]?.[timeKey] || 0;
+    const timeWindow = getTimeWindowStart(time);
+    const count = bookingAvailability[date]?.[timeWindow] || 0;
+    const windowInfo = formatTimeWindow(timeWindow);
     
-    if (count >= maxBookingsPerSlot) {
-      return { status: 'full', count };
-    } else if (count >= warningThreshold) {
-      return { status: 'warning', count };
+    if (count >= maxBookingsPerTimeWindow) {
+      return { status: 'full', count, windowInfo, remaining: 0 };
+    } else if (count >= timeWarningThreshold) {
+      return { status: 'warning', count, windowInfo, remaining: maxBookingsPerTimeWindow - count };
     }
     
-    return { status: 'available', count };
+    return { status: 'available', count, windowInfo, remaining: maxBookingsPerTimeWindow - count };
   };
 
-  // Check if date is disabled (fully booked)
+  // Check if date is disabled (max 10 bookings per day reached)
   const isDateDisabled = (date) => {
     const availability = getDateAvailability(date);
     return availability.status === 'full';
   };
 
-  // Check if time is disabled (fully booked)
+  // Check if time is disabled (max 5 bookings per 2-hour window reached)
   const isTimeDisabled = (date, time) => {
-    const availability = getTimeAvailability(date, time);
-    return availability.status === 'full';
+    // First check if date is full
+    const dateAvail = getDateAvailability(date);
+    if (dateAvail.status === 'full') return true;
+    
+    // Then check if time window is full
+    const timeAvail = getTimeAvailability(date, time);
+    return timeAvail.status === 'full';
   };
 
   // Bottom navigation
@@ -457,6 +489,46 @@ export default function Dashboard() {
         booking: bookingData
       };
 
+      // Send notification to customer
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        title: 'Booking Submitted!',
+        message: `Your booking #${orderId} has been submitted. Total: ₱${totalPrice}. Waiting for staff confirmation.`,
+        type: 'info'
+      });
+
+      // Send notification to all admin and staff
+      const { data: staffAndAdmins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'staff']);
+
+      if (staffAndAdmins && staffAndAdmins.length > 0) {
+        const staffNotifications = staffAndAdmins.map(staff => ({
+          user_id: staff.id,
+          title: 'New Booking Received!',
+          message: `New booking #${orderId} needs attention. Services: ${servicesData.map(s => s.name).join(', ')}. Total: ₱${totalPrice}`,
+          type: 'info'
+        }));
+
+        await supabase.from('notifications').insert(staffNotifications);
+      }
+
+      // Update customer's preferred_pickup_time and increment total_bookings
+      const { data: currentCustomer } = await supabase
+        .from('customers')
+        .select('total_bookings')
+        .eq('id', userId)
+        .single();
+
+      await supabase
+        .from('customers')
+        .upsert({
+          id: userId,
+          preferred_pickup_time: booking.pickupTime,
+          total_bookings: (currentCustomer?.total_bookings || 0) + 1
+        }, { onConflict: 'id' });
+
       setShowOrderDetailsModal(null);
       setShowReceiptModal(receiptData);
     } catch (error) {
@@ -508,34 +580,34 @@ export default function Dashboard() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col items-center px-4 pb-24 pt-6 bg-blue-50">
+      <div className="flex-1 flex flex-col items-center px-3 sm:px-4 md:px-6 pb-24 pt-4 sm:pt-6 bg-blue-50">
 
         {/* Welcome Section - Enhanced */}
-        <div className="w-full max-w-6xl mb-8">
-          <div className="bg-blue-600 rounded-2xl p-6 shadow-lg text-white">
-            <div className="flex items-center gap-3 mb-2">
-              <Zap className="w-6 h-6" />
-              <h2 className="text-2xl font-bold">Welcome Back!</h2>
+        <div className="w-full max-w-6xl mb-4 sm:mb-6 md:mb-8">
+          <div className="bg-blue-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg text-white">
+            <div className="flex items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
+              <Zap className="w-5 h-5 sm:w-6 sm:h-6" />
+              <h2 className="text-lg sm:text-xl md:text-2xl font-bold">Welcome Back!</h2>
             </div>
-            <p className="text-blue-50">Book your laundry service with ease and convenience</p>
+            <p className="text-blue-50 text-sm sm:text-base">Book your laundry service with ease and convenience</p>
           </div>
         </div>
 
         {/* Popular Services - Enhanced */}
-        <section className="w-full max-w-6xl mb-8">
-          <div className="flex justify-between items-center mb-4">
+        <section className="w-full max-w-6xl mb-4 sm:mb-6 md:mb-8">
+          <div className="flex justify-between items-center mb-3 sm:mb-4">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-600" />
-              <h2 className="text-xl font-semibold text-gray-900">Popular Services</h2>
+              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+              <h2 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900">Popular Services</h2>
             </div>
             <button 
-              className="text-blue-600 text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
+              className="text-blue-600 text-xs sm:text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
               onClick={() => setSeeAllModal({ type: "popular", data: popularServices })}
             >
-              See all <ChevronLeft className="w-4 h-4 rotate-180" />
+              See all <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 rotate-180" />
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {(popularServices.length >= 2 ? popularServices.slice(0, 2) : [
               {
                 id: "wash-popular",
@@ -558,23 +630,23 @@ export default function Dashboard() {
             ]).map((service) => (
               <div 
                 key={service.id} 
-                className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 overflow-hidden"
+                className="bg-white rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 overflow-hidden"
                 onClick={() => setModalService(service)}
               >
                 <div className="relative">
                   <img 
                     src={service.image} 
                     alt={service.name} 
-                    className="w-full h-40 object-cover" 
+                    className="w-full h-28 sm:h-36 md:h-40 object-cover" 
                   />
-                  <div className="absolute top-3 right-3 bg-white px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-medium">
-                    <FaStar className="text-yellow-400 fill-yellow-400" />
+                  <div className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-white px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg flex items-center gap-1 text-[10px] sm:text-xs font-medium">
+                    <FaStar className="text-yellow-400 fill-yellow-400 w-3 h-3" />
                     <span>{service.rating || "4.5"}</span>
                   </div>
                 </div>
-                <div className="p-4">
-                  <p className="font-semibold text-gray-900 text-base mb-1">{service.name}</p>
-                  <p className="text-sm text-gray-600">{service.displayPrice}</p>
+                <div className="p-2 sm:p-3 md:p-4">
+                  <p className="font-semibold text-gray-900 text-sm sm:text-base mb-0.5 sm:mb-1 truncate">{service.name}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">{service.displayPrice}</p>
                 </div>
               </div>
             ))}
@@ -583,30 +655,29 @@ export default function Dashboard() {
 
         {/* All Services - Enhanced */}
         <section className="w-full max-w-6xl">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-3 sm:mb-4">
             <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-600" />
-              <h2 className="text-xl font-semibold text-gray-900">All Services</h2>
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+              <h2 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900">All Services</h2>
             </div>
             <button 
-              className="text-blue-600 text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
-              onClick={() => setSeeAllModal({ type: "services", data: bookingServices.map(s => ({
+              className="text-blue-600 text-xs sm:text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
+              onClick={() => setSeeAllModal({ type: "services", data: services.map(s => ({
                 id: s.id,
                 name: s.name,
                 price: s.price,
                 unit: s.unit,
-                displayPrice: `P${s.price}/${s.unit}`,
-                icon: serviceIcons[s.name] || service1,
-                image: serviceImages[s.name] || popular1
+                displayPrice: s.displayPrice || `P${s.price}/${s.unit}`,
+                icon: s.icon || serviceIcons[s.name] || service1,
+                image: s.image_url || s.image || serviceImages[s.name] || popular1
               })) })}
             >
-              See all <ChevronLeft className="w-4 h-4 rotate-180" />
+              See all <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 rotate-180" />
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            {bookingServices.slice(0, 3).map((service) => {
-              const serviceIcon = serviceIcons[service.name] || service1;
-              const serviceImage = serviceImages[service.name] || popular1;
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-3">
+            {services.slice(0, 6).map((service) => {
+              const serviceImage = service.image_url || service.image || serviceImages[service.name] || popular1;
               return (
                 <div 
                   key={service.id} 
@@ -616,21 +687,21 @@ export default function Dashboard() {
                     name: service.name,
                     price: service.price,
                     unit: service.unit,
-                    displayPrice: `P${service.price}/${service.unit}`,
-                    icon: serviceIcon,
+                    displayPrice: service.displayPrice || `P${service.price}/${service.unit}`,
+                    icon: service.icon || serviceIcons[service.name] || service1,
                     image: serviceImage
                   })}
                 >
-                  <div className="w-full h-24 bg-gray-100 overflow-hidden">
+                  <div className="w-full h-16 sm:h-20 md:h-24 bg-gray-100 overflow-hidden">
                     <img 
                       src={serviceImage} 
                       alt={service.name} 
                       className="w-full h-full object-cover" 
                     />
                   </div>
-                  <div className="p-3 w-full">
-                    <p className="text-xs font-medium text-gray-700 text-center leading-tight">{service.name}</p>
-                    <p className="text-xs text-gray-500 mt-1 text-center">P{service.price}/{service.unit}</p>
+                  <div className="p-2 sm:p-3 w-full">
+                    <p className="text-[10px] sm:text-xs font-medium text-gray-700 text-center leading-tight truncate">{service.name}</p>
+                    <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">P{service.price}/{service.unit}</p>
                   </div>
                 </div>
               );
@@ -656,19 +727,19 @@ export default function Dashboard() {
       )}
 
       {/* Enhanced Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-blue-100 py-3 flex justify-around items-center shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-blue-100 py-2 sm:py-3 flex justify-around items-center shadow-lg z-50 safe-area-bottom">
         {bottomNav.map(item => {
           const isActive = item.label === "Booking Laundry";
           return (
             <button 
               key={item.id} 
               onClick={item.action} 
-              className={`flex flex-col items-center transition-all group ${isActive ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600'}`}
+              className={`flex flex-col items-center transition-all group touch-manipulation ${isActive ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600 active:text-blue-600'}`}
             >
-              <div className={`p-2 rounded-lg transition ${isActive ? 'bg-blue-50' : 'group-hover:bg-blue-50'}`}>
-                <img src={item.icon} alt={item.label} className="w-5 h-5 object-contain" />
+              <div className={`p-1.5 sm:p-2 rounded-lg transition ${isActive ? 'bg-blue-50' : 'group-hover:bg-blue-50 active:bg-blue-50'}`}>
+                <img src={item.icon} alt={item.label} className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
               </div>
-              <span className="text-xs font-medium mt-1">{item.label}</span>
+              <span className="text-[10px] sm:text-xs font-medium mt-0.5 sm:mt-1 truncate max-w-[60px] sm:max-w-none">{item.label}</span>
             </button>
           );
         })}
@@ -677,34 +748,34 @@ export default function Dashboard() {
       {/* -- Modals (Booking, Order, Payment, Receipt, Individual, See All) -- */}
       {/* Individual Service Modal */}
       {modalService && (
-        <div className="fixed inset-0 bg-blue-50 bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full relative shadow-lg">
-            <button onClick={() => setModalService(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
-            <img src={modalService.image || modalService.icon} alt={modalService.name} className="w-full h-40 sm:h-48 object-cover rounded-lg mb-4" />
-            <h3 className="text-lg font-semibold mb-2">{modalService.name}</h3>
-            <p className="text-gray-600 mb-2">{modalService.description}</p>
-            <p className="font-medium">{modalService.displayPrice || `₱${modalService.price} ${modalService.unit}`}</p>
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-sm relative shadow-lg max-h-[85vh] overflow-y-auto">
+            <button onClick={() => setModalService(null)} className="absolute top-3 right-3 sm:top-2 sm:right-2 text-gray-500 hover:text-black font-bold cursor-pointer z-10 bg-white/80 rounded-full p-1">✕</button>
+            <img src={modalService.image || modalService.icon} alt={modalService.name} className="w-full h-40 sm:h-48 object-cover rounded-lg mb-3 sm:mb-4" />
+            <h3 className="text-base sm:text-lg font-semibold mb-2">{modalService.name}</h3>
+            <p className="text-gray-600 mb-2 text-sm">{modalService.description}</p>
+            <p className="font-medium text-sm sm:text-base">{modalService.displayPrice || `₱${modalService.price} ${modalService.unit}`}</p>
           </div>
         </div>
       )}
 
       {/* See All Modal */}
       {seeAllModal && (
-        <div className="fixed inset-0 bg-blue-50 bg-opacity-50 flex justify-center items-center z-50 overflow-auto p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-3xl w-full relative shadow-lg">
-            <button onClick={() => setSeeAllModal(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
-            <h3 className="text-lg font-semibold mb-4">{seeAllModal.type === "popular" ? "All Popular Services" : "All Services"}</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4">
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-3xl relative shadow-lg max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setSeeAllModal(null)} className="absolute top-3 right-3 sm:top-2 sm:right-2 text-gray-500 hover:text-black font-bold cursor-pointer z-10 bg-white/80 rounded-full p-1">✕</button>
+            <h3 className="text-base sm:text-lg font-semibold mb-4">{seeAllModal.type === "popular" ? "All Popular Services" : "All Services"}</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {seeAllModal.data.map(service => (
-                <div key={service.id} className="flex flex-col items-center bg-white rounded-2xl overflow-hidden hover:shadow-md transition cursor-pointer border border-gray-100"
+                <div key={service.id} className="flex flex-col items-center bg-white rounded-xl sm:rounded-2xl overflow-hidden hover:shadow-md transition cursor-pointer border border-gray-100"
                   onClick={() => { setModalService(service); setSeeAllModal(null); }}>
-                  <div className="w-full h-32 bg-gray-100 overflow-hidden">
+                  <div className="w-full h-24 sm:h-32 bg-gray-100 overflow-hidden">
                     <img src={service.image || service.icon} alt={service.name} className="w-full h-full object-cover" />
                   </div>
-                  <div className="p-4 w-full">
-                    <p className="font-medium text-gray-700 text-center">{service.name}</p>
+                  <div className="p-2 sm:p-4 w-full">
+                    <p className="font-medium text-gray-700 text-center text-sm sm:text-base truncate">{service.name}</p>
                     {service.displayPrice && (
-                      <p className="text-sm text-gray-500 mt-1 text-center">{service.displayPrice}</p>
+                      <p className="text-xs sm:text-sm text-gray-500 mt-1 text-center">{service.displayPrice}</p>
                     )}
                   </div>
                 </div>
@@ -716,33 +787,37 @@ export default function Dashboard() {
 
       {/* Booking Modal */}
       {showBookingModal && (
-        <div className="fixed inset-0 bg-blue-50 flex justify-center items-center z-50 overflow-auto p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-xl font-bold text-blue-500">Booking Laundry</h1>
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-md relative shadow-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h1 className="text-lg sm:text-xl font-bold text-blue-500">Booking Laundry</h1>
               <button onClick={() => {
                 setShowBookingModal(false);
                 setBookingForm({ selectedServices: [], pickupDate: "", pickupTime: "" });
-              }} className="text-black font-bold cursor-pointer text-xl">✕</button>
+              }} className="text-black font-bold cursor-pointer text-xl p-1 hover:bg-gray-100 rounded-full">✕</button>
             </div>
 
             <div className="space-y-4">
               {/* Availability Legend */}
               <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p className="text-xs font-semibold text-gray-700 mb-2">Availability Guide:</p>
+                <p className="text-xs font-semibold text-gray-700 mb-2">Booking Limits:</p>
                 <div className="flex flex-col gap-1.5 text-xs">
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border-2 border-blue-300 bg-white"></div>
-                    <span className="text-gray-600">Available</span>
+                    <div className="w-4 h-4 rounded-full bg-blue-500"></div>
+                    <span className="text-gray-600"><strong>Per Day:</strong> Max 10 bookings</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border-2 border-yellow-500 bg-yellow-50"></div>
-                    <span className="text-gray-600">Almost Full (7-9 bookings)</span>
+                    <div className="w-4 h-4 rounded-full bg-purple-500"></div>
+                    <span className="text-gray-600"><strong>Per Time:</strong> Max 5 bookings per 2-hour window</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border-2 border-red-500 bg-red-50"></div>
-                    <span className="text-gray-600">Fully Booked (10+ bookings) - Cannot select</span>
-                  </div>
+                </div>
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <p className="text-[10px] text-gray-500">
+                    🟢 Available &nbsp; 🟡 Almost Full &nbsp; 🔴 Full
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Time windows: 12-2AM, 2-4AM, 4-6AM... etc.
+                  </p>
                 </div>
               </div>
 
@@ -784,11 +859,12 @@ export default function Dashboard() {
                   {bookingForm.pickupDate && (() => {
                     const availability = getDateAvailability(bookingForm.pickupDate);
                     if (availability.status === 'full') {
-                      return <span className="ml-2 text-xs text-red-600 font-normal">(Fully Booked)</span>;
+                      return <span className="ml-2 text-xs text-red-600 font-normal">(Fully Booked - 10/10)</span>;
                     } else if (availability.status === 'warning') {
-                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.count}/{maxBookingsPerSlot} booked)</span>;
+                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.remaining} slots left)</span>;
+                    } else {
+                      return <span className="ml-2 text-xs text-green-600 font-normal">({availability.remaining} slots available)</span>;
                     }
-                    return null;
                   })()}
                 </label>
                 <div className="relative">
@@ -831,11 +907,12 @@ export default function Dashboard() {
                 {bookingForm.pickupDate && (() => {
                   const availability = getDateAvailability(bookingForm.pickupDate);
                   if (availability.status === 'full') {
-                    return <p className="text-xs text-red-600 mt-1">⚠️ This date is fully booked. Please choose another date.</p>;
+                    return <p className="text-xs text-red-600 mt-1">⚠️ This date is fully booked (10/10). Please choose another date.</p>;
                   } else if (availability.status === 'warning') {
-                    return <p className="text-xs text-yellow-600 mt-1">⚠️ This date is almost full ({availability.count}/{maxBookingsPerSlot} bookings).</p>;
+                    return <p className="text-xs text-yellow-600 mt-1">⚠️ This date is almost full ({availability.count}/10 bookings). {availability.remaining} slot(s) left!</p>;
+                  } else {
+                    return <p className="text-xs text-green-600 mt-1">✓ {availability.remaining} booking slot(s) available for this date</p>;
                   }
-                  return null;
                 })()}
               </div>
 
@@ -846,9 +923,11 @@ export default function Dashboard() {
                   {bookingForm.pickupDate && bookingForm.pickupTime && (() => {
                     const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
                     if (availability.status === 'full') {
-                      return <span className="ml-2 text-xs text-red-600 font-normal">(Fully Booked)</span>;
+                      return <span className="ml-2 text-xs text-red-600 font-normal">(Window Full: {availability.windowInfo})</span>;
                     } else if (availability.status === 'warning') {
-                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.count}/{maxBookingsPerSlot} booked)</span>;
+                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.remaining} slots left in {availability.windowInfo})</span>;
+                    } else if (availability.remaining) {
+                      return <span className="ml-2 text-xs text-green-600 font-normal">({availability.remaining} slots available)</span>;
                     }
                     return null;
                   })()}
@@ -860,7 +939,8 @@ export default function Dashboard() {
                     onChange={(e) => {
                       const selectedTime = e.target.value;
                       if (bookingForm.pickupDate && isTimeDisabled(bookingForm.pickupDate, selectedTime)) {
-                        alert(`This time slot (${selectedTime}) is fully booked for ${bookingForm.pickupDate}. Please select another time.`);
+                        const availability = getTimeAvailability(bookingForm.pickupDate, selectedTime);
+                        alert(`The time window ${availability.windowInfo} is fully booked (5/5). Please select a time in a different 2-hour window.`);
                         return;
                       }
                       setBookingForm({ ...bookingForm, pickupTime: selectedTime });
@@ -897,9 +977,11 @@ export default function Dashboard() {
                 {bookingForm.pickupDate && bookingForm.pickupTime && (() => {
                   const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
                   if (availability.status === 'full') {
-                    return <p className="text-xs text-red-600 mt-1">⚠️ This time slot is fully booked. Please choose another time.</p>;
+                    return <p className="text-xs text-red-600 mt-1">⚠️ Time window {availability.windowInfo} is fully booked (5/5). Please choose a different time window.</p>;
                   } else if (availability.status === 'warning') {
-                    return <p className="text-xs text-yellow-600 mt-1">⚠️ This time slot is almost full ({availability.count}/{maxBookingsPerSlot} bookings).</p>;
+                    return <p className="text-xs text-yellow-600 mt-1">⚠️ Time window {availability.windowInfo} has {availability.count}/5 bookings. Only {availability.remaining} slot(s) left!</p>;
+                  } else if (availability.remaining) {
+                    return <p className="text-xs text-green-600 mt-1">✓ Time window {availability.windowInfo} - {availability.remaining} slot(s) available</p>;
                   }
                   return null;
                 })()}
