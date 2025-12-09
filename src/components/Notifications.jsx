@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Bell, X, Check, CheckCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
 export default function Notifications({ userId, variant = 'light' }) {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
@@ -181,6 +183,32 @@ export default function Notifications({ userId, variant = 'light' }) {
                     onClick={() => {
                       if (!notification.is_read) {
                         markAsRead(notification.id);
+                      }
+                      
+                      // Navigate to bookings tab if it's a "New Booking Received!" notification
+                      if (notification.title === 'New Booking Received!' || notification.title === 'New Booking Received') {
+                        // Check if user is admin or staff
+                        const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
+                        if (userProfile?.role === 'admin' || userProfile?.role === 'staff') {
+                          // Set active tab to bookings
+                          sessionStorage.setItem('openTab', 'bookings');
+                          // Navigate to admin dashboard
+                          navigate('/admindashboard');
+                          // Close notification panel
+                          setIsOpen(false);
+                        }
+                      } else if (notification.related_booking_id) {
+                        // For other booking-related notifications, navigate based on user role
+                        const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
+                        if (userProfile?.role === 'admin' || userProfile?.role === 'staff') {
+                          sessionStorage.setItem('openTab', 'bookings');
+                          navigate('/admindashboard');
+                          setIsOpen(false);
+                        } else {
+                          // For customers, go to history
+                          navigate('/history');
+                          setIsOpen(false);
+                        }
                       }
                     }}
                   >

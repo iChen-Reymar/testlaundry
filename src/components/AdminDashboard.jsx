@@ -292,12 +292,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const updateBookingStatus = async (bookingId, newStatus) => {
+  const updateBookingStatus = async (bookingId, newStatus, silent = false) => {
     try {
       // Get booking details first
       const booking = bookings.find(b => b.id === bookingId);
       if (!booking) {
-        alert("Booking not found");
+        if (!silent) alert("Booking not found");
         return;
       }
 
@@ -367,21 +367,23 @@ export default function AdminDashboard() {
         }
       }
       
-      alert(`Booking status updated to ${newStatus}`);
-      fetchBookings();
+      if (!silent) {
+        alert(`Booking status updated to ${newStatus}`);
+        fetchBookings();
+      }
       if (selectedBooking && selectedBooking.id === bookingId) {
         setSelectedBooking({ ...selectedBooking, status: newStatus });
       }
     } catch (error) {
       console.error("Error updating booking:", error);
-      alert("Failed to update booking status");
+      if (!silent) alert("Failed to update booking status");
     }
   };
 
-  const declineBooking = async (bookingId, reason = '') => {
-    const declineReason = reason || prompt("Please provide a reason for declining this booking (optional):");
+  const declineBooking = async (bookingId, reason = '', silent = false) => {
+    const declineReason = reason || (silent ? '' : prompt("Please provide a reason for declining this booking (optional):"));
     
-    if (!confirm("Are you sure you want to decline this booking? The customer will be notified.")) return;
+    if (!silent && !confirm("Are you sure you want to decline this booking? The customer will be notified.")) return;
 
     try {
       // Get booking details
@@ -439,20 +441,22 @@ export default function AdminDashboard() {
         }
       }
 
-      alert("Booking declined successfully. The customer has been notified.");
-      fetchBookings();
+      if (!silent) {
+        alert("Booking declined successfully. The customer has been notified.");
+        fetchBookings();
+      }
       
       if (selectedBooking && selectedBooking.id === bookingId) {
         setSelectedBooking({ ...selectedBooking, status: 'cancelled' });
       }
     } catch (error) {
       console.error("Error declining booking:", error);
-      alert("Failed to decline booking: " + error.message);
+      if (!silent) alert("Failed to decline booking: " + error.message);
     }
   };
 
-  const confirmPayment = async (bookingId) => {
-    if (!confirm("Confirm payment for this booking? This will mark the payment as paid and the user will see this update in their history.")) return;
+  const confirmPayment = async (bookingId, silent = false) => {
+    if (!silent && !confirm("Confirm payment for this booking? This will mark the payment as paid and the user will see this update in their history.")) return;
     
     try {
       // Get booking details
@@ -511,8 +515,10 @@ export default function AdminDashboard() {
         }
       }
       
-      alert("Payment confirmed successfully! The user will see this update in their history.");
-      fetchBookings();
+      if (!silent) {
+        alert("Payment confirmed successfully! The user will see this update in their history.");
+        fetchBookings();
+      }
       
       // Update selected booking if it's the same one
       if (selectedBooking && selectedBooking.id === bookingId) {
@@ -525,7 +531,7 @@ export default function AdminDashboard() {
       }
     } catch (error) {
       console.error("Error confirming payment:", error);
-      alert("Failed to confirm payment. Please try again.");
+      if (!silent) alert("Failed to confirm payment. Please try again.");
     }
   };
 
@@ -1409,8 +1415,10 @@ export default function AdminDashboard() {
                                 onClick={async () => {
                                   if (!confirm(`Confirm payment for all ${order.services.length} service(s)? Total: ₱${order.totalPrice.toFixed(2)}`)) return;
                                   for (const bookingId of order.bookingIds) {
-                                    await confirmPayment(bookingId);
+                                    await confirmPayment(bookingId, true); // silent mode
                                   }
+                                  alert("All payments confirmed successfully!");
+                                  fetchBookings();
                                 }}
                                 className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
                                 title="Confirm All Payments"
@@ -1425,8 +1433,10 @@ export default function AdminDashboard() {
                                 onClick={async () => {
                                   if (!confirm(`Confirm all ${order.services.length} service(s) in this order?`)) return;
                                   for (const bookingId of order.bookingIds) {
-                                    await updateBookingStatus(bookingId, 'confirmed');
+                                    await updateBookingStatus(bookingId, 'confirmed', true); // silent mode
                                   }
+                                  alert("All bookings confirmed!");
+                                  fetchBookings();
                                 }}
                                 className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
                                 title="Confirm All"
@@ -1439,8 +1449,10 @@ export default function AdminDashboard() {
                               <button
                                 onClick={async () => {
                                   for (const bookingId of order.bookingIds) {
-                                    await updateBookingStatus(bookingId, 'in_progress');
+                                    await updateBookingStatus(bookingId, 'in_progress', true); // silent mode
                                   }
+                                  alert("Order is now in progress!");
+                                  fetchBookings();
                                 }}
                                 className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition cursor-pointer"
                                 title="Start Processing All"
@@ -1453,8 +1465,10 @@ export default function AdminDashboard() {
                               <button
                                 onClick={async () => {
                                   for (const bookingId of order.bookingIds) {
-                                    await updateBookingStatus(bookingId, 'completed');
+                                    await updateBookingStatus(bookingId, 'completed', true); // silent mode
                                   }
+                                  alert("Order completed successfully!");
+                                  fetchBookings();
                                 }}
                                 className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
                                 title="Complete All"
@@ -1467,9 +1481,12 @@ export default function AdminDashboard() {
                               <button
                                 onClick={async () => {
                                   if (!confirm(`Decline all ${order.services.length} service(s) in this order?`)) return;
+                                  const reason = prompt("Reason for declining (optional):");
                                   for (const bookingId of order.bookingIds) {
-                                    await declineBooking(bookingId);
+                                    await declineBooking(bookingId, reason || '', true); // silent mode
                                   }
+                                  alert("All bookings declined. Customer has been notified.");
+                                  fetchBookings();
                                 }}
                                 className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
                                 title="Decline All"
@@ -1773,14 +1790,18 @@ export default function AdminDashboard() {
                 {selectedBooking?.payment_status === 'unpaid' && selectedBooking?.status !== 'cancelled' && (
                   <button
                     onClick={async () => {
+                      if (!confirm("Confirm payment for this order?")) return;
                       // Handle grouped orders (multiple bookingIds) or single booking (id)
                       if (selectedBooking?.bookingIds && selectedBooking.bookingIds.length > 0) {
                         for (const bookingId of selectedBooking.bookingIds) {
-                          await confirmPayment(bookingId);
+                          await confirmPayment(bookingId, true); // silent mode
                         }
+                        alert("All payments confirmed!");
+                        fetchBookings();
                       } else if (selectedBooking?.id) {
                         await confirmPayment(selectedBooking.id);
                       }
+                      setSelectedBooking(null);
                     }}
                     className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2"
                   >
@@ -1794,9 +1815,12 @@ export default function AdminDashboard() {
                       // Handle grouped orders (multiple bookingIds) or single booking (id)
                       if (selectedBooking?.bookingIds && selectedBooking.bookingIds.length > 0) {
                         if (!confirm(`Decline all ${selectedBooking.bookingIds.length} service(s) in this order?`)) return;
+                        const reason = prompt("Reason for declining (optional):");
                         for (const bookingId of selectedBooking.bookingIds) {
-                          await declineBooking(bookingId);
+                          await declineBooking(bookingId, reason || '', true); // silent mode
                         }
+                        alert("All bookings declined!");
+                        fetchBookings();
                         setSelectedBooking(null);
                       } else if (selectedBooking?.id) {
                         declineBooking(selectedBooking.id);
