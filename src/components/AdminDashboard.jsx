@@ -40,6 +40,14 @@ export default function AdminDashboard() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [groupedBookings, setGroupedBookings] = useState([]);
+
+  // Get base order ID (remove -1, -2, etc. suffix)
+  const getBaseOrderId = (orderId) => {
+    if (!orderId) return orderId;
+    const match = orderId.match(/^(ORD-[^-]+-[^-]+)-\d+$/);
+    return match ? match[1] : orderId;
+  };
 
   // Check if user is admin
   useEffect(() => {
@@ -170,6 +178,48 @@ export default function AdminDashboard() {
 
       if (error) throw error;
       setBookings(data || []);
+
+      // Group bookings by base order ID
+      const groupedMap = {};
+      (data || []).forEach(booking => {
+        const baseOrderId = getBaseOrderId(booking.order_id);
+        
+        if (!groupedMap[baseOrderId]) {
+          groupedMap[baseOrderId] = {
+            baseOrderId,
+            pickup_date: booking.pickup_date,
+            pickup_time: booking.pickup_time,
+            status: booking.status,
+            payment_status: booking.payment_status,
+            user_id: booking.user_id,
+            customerName: booking.profiles?.name || "N/A",
+            customerEmail: booking.profiles?.email || "",
+            services: [],
+            bookingIds: [],
+            totalPrice: 0,
+            created_at: booking.created_at
+          };
+        }
+        
+        groupedMap[baseOrderId].services.push({
+          id: booking.id,
+          name: booking.services?.name || "Unknown Service",
+          price: parseFloat(booking.total_price) || 0,
+          quantity: booking.quantity || 1,
+          unit: booking.services?.unit || "per item",
+          status: booking.status,
+          payment_status: booking.payment_status
+        });
+        
+        groupedMap[baseOrderId].bookingIds.push(booking.id);
+        groupedMap[baseOrderId].totalPrice += parseFloat(booking.total_price) || 0;
+      });
+
+      // Convert to array and sort
+      const groupedArray = Object.values(groupedMap).sort(
+        (a, b) => new Date(a.pickup_date + ' ' + a.pickup_time) - new Date(b.pickup_date + ' ' + b.pickup_time)
+      );
+      setGroupedBookings(groupedArray);
     } catch (error) {
       console.error("Error fetching bookings:", error);
       alert("Failed to load bookings. Please try again.");
@@ -1105,83 +1155,174 @@ export default function AdminDashboard() {
                   )}
                 </div>
 
-                {/* Bookings List */}
+                {/* Bookings List - Grouped by Order */}
                 <div className="space-y-3 sm:space-y-4">
                   <h3 className="text-base sm:text-lg font-semibold text-gray-800">
                     {selectedDate ? `Bookings for ${new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'All Bookings'}
+                    {groupedBookings.length > 0 && <span className="text-sm font-normal text-gray-500 ml-2">({groupedBookings.length} orders)</span>}
                   </h3>
-                  {bookings.length === 0 ? (
+                  {groupedBookings.length === 0 ? (
                     <p className="text-center text-gray-500 py-6 sm:py-8 text-sm">No bookings {selectedDate ? 'for this date' : 'yet'}</p>
                   ) : (
-                    bookings.map(booking => (
-                      <div key={booking.id} className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow hover:shadow-md transition">
+                    groupedBookings.map(order => (
+                      <div key={order.baseOrderId} className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow hover:shadow-md transition">
                         <div className="flex flex-col gap-3 sm:gap-4">
                           <div className="flex-1">
                             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
-                              <p className="font-semibold text-gray-800 text-sm sm:text-base">{booking.order_id}</p>
-                              {getStatusBadge(booking.status)}
-                              {getPaymentStatusBadge(booking.payment_status)}
+                              <p className="font-semibold text-gray-800 text-sm sm:text-base">{order.baseOrderId}</p>
+                              {order.services.length > 1 && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] sm:text-xs font-medium">
+                                  {order.services.length} services
+                                </span>
+                              )}
+                              {getStatusBadge(order.status)}
+                              {getPaymentStatusBadge(order.payment_status)}
                             </div>
-                            <p className="text-xs sm:text-sm text-gray-600">Customer: {booking.profiles?.name || "N/A"}</p>
-                            <p className="text-xs sm:text-sm text-gray-600">Service: {booking.services?.name || "N/A"}</p>
-                            <p className="text-xs sm:text-sm text-gray-600">
-                              Pickup: {formatDate(booking.pickup_date)} at {formatTime(booking.pickup_time)}
+                            <p className="text-xs sm:text-sm text-gray-600">Customer: {order.customerName}</p>
+                            
+                            {/* Services List */}
+                            <div className="mt-2 space-y-1">
+                              {order.services.map((service, idx) => (
+                                <div key={idx} className="flex items-center justify-between text-xs sm:text-sm bg-gray-50 px-2 py-1.5 rounded group">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-gray-700">{service.name}</span>
+                                    {service.status === 'cancelled' && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded">removed</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-gray-800">₱{service.price.toFixed(2)}</span>
+                                    {/* Delete individual service button */}
+                                    {service.status !== 'cancelled' && service.status !== 'completed' && (
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (!confirm(`Remove "${service.name}" (₱${service.price.toFixed(2)}) from this order?`)) return;
+                                          try {
+                                            // Delete the individual booking
+                                            const { error } = await supabase
+                                              .from('bookings')
+                                              .delete()
+                                              .eq('id', service.id);
+                                            
+                                            if (error) throw error;
+                                            
+                                            // Notify customer
+                                            await supabase.from('notifications').insert({
+                                              user_id: order.user_id,
+                                              title: 'Service Removed from Order',
+                                              message: `"${service.name}" has been removed from your order ${order.baseOrderId}. Refund/adjustment will be processed.`,
+                                              type: 'warning'
+                                            });
+                                            
+                                            alert(`"${service.name}" removed from order`);
+                                            fetchBookings();
+                                          } catch (error) {
+                                            console.error("Error removing service:", error);
+                                            alert("Failed to remove service. Please try again.");
+                                          }
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-100 rounded transition"
+                                        title={`Remove ${service.name}`}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            
+                            <p className="text-xs sm:text-sm text-gray-600 mt-2">
+                              Pickup: {formatDate(order.pickup_date)} at {formatTime(order.pickup_time)}
                             </p>
-                            <p className="text-xs sm:text-sm font-medium text-gray-800 mt-1">Total: ₱{booking.total_price}</p>
+                            <p className="text-sm sm:text-base font-bold text-blue-600 mt-1">Total: ₱{order.totalPrice.toFixed(2)}</p>
                           </div>
                           
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
                             <button
-                              onClick={() => setSelectedBooking(booking)}
+                              onClick={() => setSelectedBooking({
+                                ...order,
+                                order_id: order.baseOrderId,
+                                profiles: { name: order.customerName, email: order.customerEmail },
+                                total_price: order.totalPrice,
+                                allServices: order.services
+                              })}
                               className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
                               title="View Details"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {/* Staff: Confirm Payment Button */}
-                            {(currentUserRole === 'staff' || currentUserRole === 'admin') && booking.payment_status === 'unpaid' && (
+                            {/* Confirm All Payments */}
+                            {(currentUserRole === 'staff' || currentUserRole === 'admin') && order.payment_status === 'unpaid' && (
                               <button
-                                onClick={() => confirmPayment(booking.id)}
+                                onClick={async () => {
+                                  if (!confirm(`Confirm payment for all ${order.services.length} service(s)? Total: ₱${order.totalPrice.toFixed(2)}`)) return;
+                                  for (const bookingId of order.bookingIds) {
+                                    await confirmPayment(bookingId);
+                                  }
+                                }}
                                 className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
-                                title="Confirm Payment"
+                                title="Confirm All Payments"
                               >
                                 <CreditCard className="w-4 h-4" />
-                                <span>Pay</span>
+                                <span>Pay All</span>
                               </button>
                             )}
-                            {booking.status === 'pending' && (
+                            {/* Confirm All Bookings */}
+                            {order.status === 'pending' && (
                               <button
-                                onClick={() => updateBookingStatus(booking.id, 'confirmed')}
+                                onClick={async () => {
+                                  if (!confirm(`Confirm all ${order.services.length} service(s) in this order?`)) return;
+                                  for (const bookingId of order.bookingIds) {
+                                    await updateBookingStatus(bookingId, 'confirmed');
+                                  }
+                                }}
                                 className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
-                                title="Confirm Booking"
+                                title="Confirm All"
                               >
                                 <CheckCircle className="w-4 h-4" />
                               </button>
                             )}
-                            {booking.status === 'confirmed' && (
+                            {/* Start Processing All */}
+                            {order.status === 'confirmed' && (
                               <button
-                                onClick={() => updateBookingStatus(booking.id, 'in_progress')}
+                                onClick={async () => {
+                                  for (const bookingId of order.bookingIds) {
+                                    await updateBookingStatus(bookingId, 'in_progress');
+                                  }
+                                }}
                                 className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition cursor-pointer"
-                                title="Start Processing"
+                                title="Start Processing All"
                               >
                                 <Clock className="w-4 h-4" />
                               </button>
                             )}
-                            {booking.status === 'in_progress' && (
+                            {/* Complete All */}
+                            {order.status === 'in_progress' && (
                               <button
-                                onClick={() => updateBookingStatus(booking.id, 'completed')}
+                                onClick={async () => {
+                                  for (const bookingId of order.bookingIds) {
+                                    await updateBookingStatus(bookingId, 'completed');
+                                  }
+                                }}
                                 className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
-                                title="Mark as Completed"
+                                title="Complete All"
                               >
                                 <CheckCircle className="w-4 h-4" />
                               </button>
                             )}
-                            {/* Decline Button - for pending or confirmed bookings */}
-                            {(booking.status === 'pending' || booking.status === 'confirmed') && (
+                            {/* Decline All */}
+                            {(order.status === 'pending' || order.status === 'confirmed') && (
                               <button
-                                onClick={() => declineBooking(booking.id)}
+                                onClick={async () => {
+                                  if (!confirm(`Decline all ${order.services.length} service(s) in this order?`)) return;
+                                  for (const bookingId of order.bookingIds) {
+                                    await declineBooking(bookingId);
+                                  }
+                                }}
                                 className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
-                                title="Decline Booking"
+                                title="Decline All"
                               >
                                 <XCircle className="w-4 h-4" />
                               </button>

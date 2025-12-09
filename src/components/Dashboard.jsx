@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [openingHour] = useState(8); // 8 AM
   const [closingHour] = useState(20); // 8 PM (20:00)
 
+
   // Map service names to icons (fallback)
   const serviceIcons = {
     "Wash": service1,
@@ -282,15 +283,13 @@ export default function Dashboard() {
     unit: service.unit,
   }));
 
-  // Predefined services for booking modal
-  const bookingServices = [
-    { id: "wash", name: "Wash", price: 35, unit: "kg" },
-    { id: "dry", name: "Dry", price: 30, unit: "kg" },
-    { id: "fold", name: "Fold", price: 20, unit: "kg" },
-    { id: "ironing", name: "Ironing", price: 25, unit: "pc" },
-    { id: "pressing", name: "Pressing", price: 30, unit: "pc" },
-    { id: "drycleaning", name: "Dry Cleaning", price: 100, unit: "pc" },
-  ];
+  // Use services from database for booking modal (filter only active ones)
+  const bookingServices = services.filter(s => s.is_active !== false).map(s => ({
+    id: s.id,
+    name: s.name,
+    price: parseFloat(s.price),
+    unit: s.unit || 'per kg'
+  }));
 
   const [bookingForm, setBookingForm] = useState({
     selectedServices: [], // Array of selected service IDs
@@ -319,10 +318,12 @@ export default function Dashboard() {
   };
 
   const generateUniqueOrderId = () => {
-    // Use timestamp + random to ensure uniqueness
+    // Use timestamp + random + extra randomness to ensure uniqueness
     const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 10000);
-    return `ORD-${timestamp}-${random}`;
+    const random1 = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    const random2 = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    const uniqueSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `ORD-${timestamp}${random1}-${random2}${uniqueSuffix}`;
   };
 
   const handleBook = () => {
@@ -348,6 +349,7 @@ export default function Dashboard() {
     const servicesData = bookingForm.selectedServices.map(serviceId => {
       const service = bookingServices.find(s => s.id === serviceId);
       return {
+        id: service.id, // Include service ID for database
         name: service.name,
         price: service.price,
         unit: service.unit,
@@ -412,9 +414,9 @@ export default function Dashboard() {
       console.log('Placing order with order_id:', orderId, 'user_id:', userId);
 
       // Save each service as a separate booking entry
-      const bookingPromises = servicesToSave.map(async (service) => {
-        // Find matching service ID from database if available
-        const dbService = services.find(s => s.name === service.name);
+      const bookingPromises = servicesToSave.map(async (service, index) => {
+        // Use service ID directly if available, otherwise find by name
+        const serviceId = service.id || services.find(s => s.name === service.name)?.id || null;
         
         // Ensure user_id is a valid UUID string
         if (!userId || typeof userId !== 'string') {
@@ -426,11 +428,17 @@ export default function Dashboard() {
           throw new Error('Pickup date and time are required.');
         }
         
+        // Generate unique order_id for each service entry to avoid conflicts
+        // But keep them grouped with a base order ID
+        const serviceOrderId = servicesToSave.length > 1 
+          ? `${orderId}-${index + 1}` 
+          : orderId;
+        
         // Prepare booking data with correct types
         const bookingData = {
-          order_id: orderId,
+          order_id: serviceOrderId,
           user_id: userId, // Should be UUID string
-          service_id: dbService?.id || null,
+          service_id: serviceId,
           quantity: parseFloat(service.quantity) || 1.0,
           pickup_date: booking.pickupDate, // Should be YYYY-MM-DD format
           pickup_time: booking.pickupTime, // Should be HH:MM:SS format
@@ -461,21 +469,24 @@ export default function Dashboard() {
         if (error.code === '23505' && error.message?.includes('order_id')) {
           // Retry with a new order ID (only once)
           const newOrderId = generateUniqueOrderId();
-          const retryPromises = servicesToSave.map(async (service) => {
-            const dbService = services.find(s => s.name === service.name);
+          const retryPromises = servicesToSave.map(async (service, index) => {
+            const serviceId = service.id || services.find(s => s.name === service.name)?.id || null;
+            const serviceOrderId = servicesToSave.length > 1 
+              ? `${newOrderId}-${index + 1}` 
+              : newOrderId;
             return supabase
               .from('bookings')
               .insert({
-                order_id: newOrderId,
+                order_id: serviceOrderId,
                 user_id: userId,
-                service_id: dbService?.id || null,
-                quantity: service.quantity || 1,
+                service_id: serviceId,
+                quantity: parseFloat(service.quantity) || 1,
                 pickup_date: booking.pickupDate,
                 pickup_time: booking.pickupTime,
-                payment_method: booking.paymentMethod,
+                payment_method: null,
                 payment_id: paymentId,
-                payment_status: 'paid',
-                total_price: service.price.toFixed(2),
+                payment_status: 'unpaid',
+                total_price: parseFloat(service.price) || 0,
                 status: 'pending'
               })
               .select()
@@ -1052,22 +1063,21 @@ export default function Dashboard() {
 
       {/* Order Details Modal */}
       {showOrderDetailsModal && (
-        <div className="fixed inset-0 bg-blue-50 bg-opacity-50 flex justify-center items-center z-50 overflow-auto p-4">
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 overflow-auto p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
             <button onClick={() => setShowOrderDetailsModal(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
-            <h1 className="text-xl font-bold text-blue-500 mb-6 text-center">Booking Details</h1>
+            <h1 className="text-xl font-bold text-blue-500 mb-6 text-center">Confirm Booking</h1>
 
             <div className="space-y-3">
-              <div className="flex justify-between"><p className="text-gray-500 font-medium">Order ID:</p><p className="font-semibold">{showOrderDetailsModal.orderId}</p></div>
-              <div className="flex justify-between"><p className="text-gray-500 font-medium">Status:</p><p className="font-semibold">{showOrderDetailsModal.status || "Pending"}</p></div>
+              <div className="flex justify-between"><p className="text-gray-500 font-medium">Order ID:</p><p className="font-semibold text-sm">{showOrderDetailsModal.orderId}</p></div>
               <div className="flex justify-between"><p className="text-gray-500 font-medium">Pickup Date:</p><p className="font-semibold">{formatDate(showOrderDetailsModal.pickupDate)}</p></div>
               <div className="flex justify-between"><p className="text-gray-500 font-medium">Pickup Time:</p><p className="font-semibold">{formatTime(showOrderDetailsModal.pickupTime)}</p></div>
 
               <div className="border-t border-gray-200 pt-3">
-                <p className="text-gray-500 font-medium mb-2">Service Type:</p>
+                <p className="text-gray-500 font-medium mb-2">Services ({showOrderDetailsModal.services?.length || 1}):</p>
                 {showOrderDetailsModal.services ? (
                   showOrderDetailsModal.services.map((service, index) => (
-                    <div key={index} className="flex justify-between mb-2">
+                    <div key={index} className="flex justify-between mb-2 bg-gray-50 p-2 rounded">
                       <p className="text-gray-700">
                         {service.name} - P{service.price}/{service.unit}
                       </p>
@@ -1075,7 +1085,7 @@ export default function Dashboard() {
                     </div>
                   ))
                 ) : (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
                     <p className="text-gray-700">
                       {showOrderDetailsModal.serviceType} 
                       {showOrderDetailsModal.unit === "per kg" ? ` (${showOrderDetailsModal.quantity} kg)` : 
@@ -1087,11 +1097,24 @@ export default function Dashboard() {
               </div>
 
               <div className="flex justify-between border-t border-gray-200 pt-3">
-                <p className="text-gray-500 font-medium">Total:</p>
-                <p className="font-semibold">₱{(showOrderDetailsModal.total || (showOrderDetailsModal.price * (showOrderDetailsModal.quantity || 1))).toFixed(2)}</p>
+                <p className="text-gray-700 font-medium">Total:</p>
+                <p className="font-bold text-lg text-blue-600">₱{(showOrderDetailsModal.total || (showOrderDetailsModal.price * (showOrderDetailsModal.quantity || 1))).toFixed(2)}</p>
               </div>
 
-              <button onClick={() => handlePlaceOrder(showOrderDetailsModal)} className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-full font-semibold transition mt-4 cursor-pointer">Done</button>
+              <div className="flex gap-2 mt-4">
+                <button 
+                  onClick={() => setShowOrderDetailsModal(null)} 
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-full font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handlePlaceOrder(showOrderDetailsModal)} 
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-full font-semibold transition cursor-pointer"
+                >
+                  Confirm Booking
+                </button>
+              </div>
             </div>
           </div>
         </div>

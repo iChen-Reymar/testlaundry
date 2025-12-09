@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Trash2, Eye, Clock, Calendar, Package } from "lucide-react";
+import { ChevronLeft, Trash2, Eye, Package, X, Calendar, Clock, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 
@@ -9,6 +9,7 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState(null);
   const [userRole, setUserRole] = useState('user');
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   useEffect(() => {
     checkAuth();
@@ -48,10 +49,17 @@ export default function History() {
     }
   };
 
+  // Get base order ID (remove -1, -2, etc. suffix)
+  const getBaseOrderId = (orderId) => {
+    if (!orderId) return orderId;
+    // Match pattern like ORD-xxx-1, ORD-xxx-2 and extract base
+    const match = orderId.match(/^(ORD-[^-]+-[^-]+)-\d+$/);
+    return match ? match[1] : orderId;
+  };
+
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      // Build query - admins see all bookings, users see only their own
       let query = supabase
         .from('bookings')
         .select(`
@@ -60,7 +68,6 @@ export default function History() {
           profiles:user_id (name, email)
         `);
 
-      // If user is not admin, filter by their user_id
       if (userRole !== 'admin') {
         query = query.eq('user_id', userId);
       }
@@ -72,39 +79,62 @@ export default function History() {
       // For regular users, filter out hidden bookings
       let filteredBookings = allBookings || [];
       if (userRole !== 'admin' && userId) {
-        // Get list of hidden booking IDs for this user
         const { data: hiddenBookings } = await supabase
           .from('user_hidden_bookings')
           .select('booking_id')
           .eq('user_id', userId);
         
         const hiddenIds = new Set((hiddenBookings || []).map(h => h.booking_id));
-        
-        // Filter out hidden bookings
         filteredBookings = (allBookings || []).filter(booking => !hiddenIds.has(booking.id));
       }
 
-      // Transform bookings to match the expected format
-      const transformedHistory = filteredBookings.map(booking => ({
-        id: booking.id,
-        orderId: booking.order_id,
-        paymentId: booking.payment_id || `PMT-${booking.id}`,
-        date: new Date(booking.created_at).toLocaleDateString("en-US"),
-        services: [{
+      // Group bookings by base order ID
+      const groupedOrders = {};
+      filteredBookings.forEach(booking => {
+        const baseOrderId = getBaseOrderId(booking.order_id);
+        
+        if (!groupedOrders[baseOrderId]) {
+          groupedOrders[baseOrderId] = {
+            baseOrderId,
+            date: new Date(booking.created_at).toLocaleDateString("en-US"),
+            pickupDate: booking.pickup_date,
+            pickupTime: booking.pickup_time,
+            status: booking.status,
+            payment_status: booking.payment_status,
+            user_id: booking.user_id,
+            customerName: booking.profiles?.name || "Unknown Customer",
+            customerEmail: booking.profiles?.email || "",
+            services: [],
+            bookingIds: [],
+            totalPrice: 0,
+            created_at: booking.created_at
+          };
+        }
+        
+        groupedOrders[baseOrderId].services.push({
+          id: booking.id,
           name: booking.services?.name || "Unknown Service",
-          price: parseFloat(booking.total_price),
-          quantity: booking.quantity,
+          price: parseFloat(booking.total_price) || 0,
+          quantity: booking.quantity || 1,
           unit: booking.services?.unit || "per item"
-        }],
-        status: booking.status,
-        payment_status: booking.payment_status,
-        user_id: booking.user_id,
-        customerName: booking.profiles?.name || "Unknown Customer",
-        customerEmail: booking.profiles?.email || "",
-        booking: booking
-      }));
+        });
+        
+        groupedOrders[baseOrderId].bookingIds.push(booking.id);
+        groupedOrders[baseOrderId].totalPrice += parseFloat(booking.total_price) || 0;
+        
+        // Use the most recent status
+        if (new Date(booking.created_at) > new Date(groupedOrders[baseOrderId].created_at)) {
+          groupedOrders[baseOrderId].status = booking.status;
+          groupedOrders[baseOrderId].payment_status = booking.payment_status;
+        }
+      });
 
-      setHistory(transformedHistory);
+      // Convert to array and sort by date
+      const ordersArray = Object.values(groupedOrders).sort(
+        (a, b) => new Date(b.created_at) - new Date(a.created_at)
+      );
+
+      setHistory(ordersArray);
     } catch (error) {
       console.error("Error fetching bookings:", error);
       alert("Failed to load booking history. Please try again.");
@@ -113,87 +143,114 @@ export default function History() {
     }
   };
 
-  const handleDelete = async (bookingId, bookingUserId) => {
-    // Check if user has permission
-    if (userRole !== 'admin' && bookingUserId !== userId) {
+  const handleDelete = async (order) => {
+    if (userRole !== 'admin' && order.user_id !== userId) {
       alert("You can only delete your own bookings.");
       return;
     }
 
-    if (userRole === 'admin') {
-      // Admins can permanently delete bookings
-      const confirmMessage = "Are you sure you want to permanently delete this booking? This action cannot be undone and will remove it for all users.";
-      if (!confirm(confirmMessage)) return;
+    const serviceCount = order.services.length;
+    const confirmMessage = userRole === 'admin'
+      ? `Are you sure you want to permanently delete this order with ${serviceCount} service(s)? This action cannot be undone.`
+      : `Are you sure you want to remove this order with ${serviceCount} service(s) from your history?`;
+    
+    if (!confirm(confirmMessage)) return;
 
-      try {
-        const { error } = await supabase
-          .from('bookings')
-          .delete()
-          .eq('id', bookingId);
-
-        if (error) {
-          if (error.code === '42501' || error.message.includes('permission')) {
-            alert("You don't have permission to delete this booking.");
-            return;
-          }
-          throw error;
+    try {
+      if (userRole === 'admin') {
+        // Delete all bookings in this order
+        for (const bookingId of order.bookingIds) {
+          await supabase.from('bookings').delete().eq('id', bookingId);
         }
-        
-        alert("Booking permanently deleted!");
-        fetchBookings();
-      } catch (error) {
-        console.error("Error deleting booking:", error);
-        alert("Failed to delete booking. Please try again.");
-      }
-    } else {
-      // Regular users: Hide booking from their view (soft delete)
-      const confirmMessage = "Are you sure you want to remove this booking from your history? Admins will still be able to see it.";
-      if (!confirm(confirmMessage)) return;
-
-      try {
-        // Check if already hidden
-        const { data: existing } = await supabase
-          .from('user_hidden_bookings')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('booking_id', bookingId)
-          .single();
-
-        if (existing) {
-          alert("This booking is already hidden from your view.");
-          return;
-        }
-
-        // Hide the booking for this user
-        const { error } = await supabase
-          .from('user_hidden_bookings')
-          .insert({
+        alert("Order permanently deleted!");
+      } else {
+        // Hide all bookings in this order for the user
+        for (const bookingId of order.bookingIds) {
+          await supabase.from('user_hidden_bookings').insert({
             user_id: userId,
             booking_id: bookingId
-          });
-
-        if (error) {
-          if (error.code === '23505') {
-            // Already hidden (unique constraint)
-            alert("This booking is already hidden.");
-            return;
-          }
-          throw error;
+          }).select();
         }
-        
-        alert("Booking removed from your history!");
-        // Refresh the list
-        fetchBookings();
-      } catch (error) {
-        console.error("Error hiding booking:", error);
-        alert("Failed to remove booking. Please try again.");
+        alert("Order removed from your history!");
       }
+      
+      setSelectedOrder(null);
+      fetchBookings();
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      alert("Failed to delete order. Please try again.");
     }
+  };
+
+  const handleCancelBooking = async (order) => {
+    if (order.status === 'completed' || order.status === 'cancelled') {
+      alert("This booking cannot be cancelled.");
+      return;
+    }
+
+    if (order.payment_status === 'paid') {
+      alert("This booking has been paid. Please contact support to cancel.");
+      return;
+    }
+
+    const serviceCount = order.services.length;
+    if (!confirm(`Are you sure you want to cancel this booking with ${serviceCount} service(s)? This will notify the staff.`)) return;
+
+    try {
+      // Update all bookings in this order to cancelled
+      for (const bookingId of order.bookingIds) {
+        await supabase
+          .from('bookings')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('id', bookingId);
+      }
+
+      // Notify all admin and staff
+      const { data: staffAndAdmins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'staff']);
+
+      if (staffAndAdmins && staffAndAdmins.length > 0) {
+        const notifications = staffAndAdmins.map(user => ({
+          user_id: user.id,
+          title: 'Booking Cancelled by Customer',
+          message: `Order ${order.baseOrderId} has been cancelled by the customer. Services: ${order.services.map(s => s.name).join(', ')}. Total: ₱${order.totalPrice.toFixed(2)}`,
+          type: 'warning'
+        }));
+        await supabase.from('notifications').insert(notifications);
+      }
+
+      alert("Booking cancelled successfully. Staff has been notified.");
+      setSelectedOrder(null);
+      fetchBookings();
+    } catch (error) {
+      console.error("Error cancelling booking:", error);
+      alert("Failed to cancel booking. Please try again.");
+    }
+  };
+
+  const formatTime = (timeStr) => {
+    if (!timeStr) return "N/A";
+    const [hourStr, min] = timeStr.split(":");
+    let hour = parseInt(hourStr, 10);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    hour = hour % 12 || 12;
+    return `${hour}:${min} ${ampm}`;
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "N/A";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col px-3 sm:px-4 py-4 sm:py-6">
-      {/* Simple Header */}
+      {/* Header */}
       <div className="max-w-2xl mx-auto w-full mb-4 sm:mb-6">
         <div className="flex items-center gap-2 sm:gap-4 mb-4 sm:mb-6">
           <button
@@ -214,6 +271,7 @@ export default function History() {
         </div>
       </div>
 
+      {/* Order List */}
       <div className="max-w-2xl mx-auto w-full space-y-2 sm:space-y-3">
         {loading ? (
           <div className="bg-white rounded-xl shadow-sm p-8 sm:p-12 text-center border border-gray-100">
@@ -229,30 +287,22 @@ export default function History() {
         ) : (
           history.map((order) => (
             <div 
-              key={order.id} 
-              className="bg-white rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all p-3 sm:p-4 border border-gray-100"
+              key={order.baseOrderId} 
+              onClick={() => setSelectedOrder(order)}
+              className="bg-white rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all p-3 sm:p-4 border border-gray-100 cursor-pointer"
             >
               <div className="flex flex-col gap-2 sm:gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-gray-900 text-sm sm:text-base truncate">{order.orderId}</p>
+                    <p className="font-semibold text-gray-900 text-sm sm:text-base truncate">{order.baseOrderId}</p>
                     <p className="text-gray-500 text-[10px] sm:text-xs mt-0.5">{order.date}</p>
                   </div>
-                  <div className="flex gap-1 sm:gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => navigate("/receipt", { state: order })}
-                      className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                      title="View Receipt"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(order.id, order.user_id)}
-                      className="p-1.5 sm:p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                      title={userRole === 'admin' ? 'Delete (Admin)' : 'Remove from history'}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {order.services.length > 1 && (
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] sm:text-xs font-medium">
+                        {order.services.length} services
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -262,20 +312,13 @@ export default function History() {
                   </p>
                 )}
 
-                <p className="text-gray-700 text-xs sm:text-sm line-clamp-2">
-                  {order.services
-                    .map(
-                      (s) =>
-                        `${s.name} ${
-                          s.unit === "per kg" && s.quantity ? `${s.quantity} kg` : ""
-                        }`
-                    )
-                    .join(", ")}
+                <p className="text-gray-700 text-xs sm:text-sm line-clamp-1">
+                  {order.services.map(s => s.name).join(", ")}
                 </p>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
                   <p className="font-semibold text-gray-900 text-sm sm:text-base">
-                    ₱{order.services.reduce((sum, s) => sum + parseFloat(s.price), 0).toFixed(2)}
+                    ₱{order.totalPrice.toFixed(2)}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
@@ -285,16 +328,14 @@ export default function History() {
                       order.status === 'cancelled' ? 'bg-red-100 text-red-700' :
                       'bg-gray-100 text-gray-700'
                     }`}>
-                      {order.status.replace('_', ' ')}
+                      {order.status?.replace('_', ' ') || 'pending'}
                     </span>
-                    {order.payment_status && (
-                      <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
-                        order.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {order.payment_status}
-                      </span>
-                    )}
+                    <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
+                      order.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {order.payment_status || 'unpaid'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -302,6 +343,157 @@ export default function History() {
           ))
         )}
       </div>
+
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-hidden shadow-xl">
+            {/* Modal Header */}
+            <div className="bg-blue-600 text-white p-4 sm:p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold">Order Details</h2>
+                  <p className="text-blue-100 text-xs sm:text-sm mt-1 font-mono">{selectedOrder.baseOrderId}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="p-1 hover:bg-white/20 rounded-lg transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 sm:p-5 overflow-y-auto max-h-[60vh]">
+              {/* Order Info */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Calendar className="w-4 h-4 text-blue-500" />
+                  <div>
+                    <p className="text-[10px] text-gray-400">Pickup Date</p>
+                    <p className="text-xs sm:text-sm font-medium">{formatDate(selectedOrder.pickupDate)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4 text-blue-500" />
+                  <div>
+                    <p className="text-[10px] text-gray-400">Pickup Time</p>
+                    <p className="text-xs sm:text-sm font-medium">{formatTime(selectedOrder.pickupTime)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Badges */}
+              <div className="flex gap-2 mb-4">
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  selectedOrder.status === 'completed' ? 'bg-green-100 text-green-700' :
+                  selectedOrder.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                  selectedOrder.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                  selectedOrder.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {selectedOrder.status?.replace('_', ' ') || 'pending'}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  selectedOrder.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                  'bg-yellow-100 text-yellow-700'
+                }`}>
+                  {selectedOrder.payment_status || 'unpaid'}
+                </span>
+              </div>
+
+              {userRole === 'admin' && (
+                <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                  <p className="text-xs text-gray-500">Customer</p>
+                  <p className="font-medium text-gray-900">{selectedOrder.customerName}</p>
+                  <p className="text-xs text-gray-600">{selectedOrder.customerEmail}</p>
+                </div>
+              )}
+
+              {/* Services List */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                  Services ({selectedOrder.services.length})
+                </h3>
+                <div className="space-y-2">
+                  {selectedOrder.services.map((service, index) => (
+                    <div 
+                      key={index}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">{service.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {service.quantity} {service.unit}
+                        </p>
+                      </div>
+                      <p className="font-semibold text-gray-900">₱{service.price.toFixed(2)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total */}
+              <div className="border-t border-gray-200 mt-4 pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-gray-600 font-medium">Total Amount</p>
+                  <p className="text-xl font-bold text-blue-600">₱{selectedOrder.totalPrice.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-4 space-y-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    navigate("/receipt", { 
+                      state: {
+                        orderId: selectedOrder.baseOrderId,
+                        services: selectedOrder.services,
+                        date: selectedOrder.date,
+                        status: selectedOrder.status,
+                        payment_status: selectedOrder.payment_status,
+                        booking: {
+                          pickup_date: selectedOrder.pickupDate,
+                          pickup_time: selectedOrder.pickupTime
+                        }
+                      }
+                    });
+                  }}
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                >
+                  <Eye className="w-4 h-4" />
+                  View Receipt
+                </button>
+                <button
+                  onClick={() => handleDelete(selectedOrder)}
+                  className="py-2.5 px-4 bg-gray-100 text-gray-600 rounded-lg font-medium hover:bg-gray-200 transition"
+                  title="Remove from history"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              
+              {/* Cancel Booking Button - Only for pending/confirmed and unpaid */}
+              {selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled' && selectedOrder.payment_status !== 'paid' && (
+                <button
+                  onClick={() => handleCancelBooking(selectedOrder)}
+                  className="w-full py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition flex items-center justify-center gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel Booking
+                </button>
+              )}
+              
+              {selectedOrder.status === 'cancelled' && (
+                <p className="text-center text-sm text-red-600 font-medium">This booking has been cancelled</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
