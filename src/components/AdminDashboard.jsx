@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock, CreditCard, Calendar, ChevronRight, ChevronLeft as ChevronLeftIcon, Plus } from "lucide-react";
+import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock, CreditCard, Calendar, ChevronRight, ChevronLeft as ChevronLeftIcon, Plus, Scale } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../lib/supabaseClient.js";
 import Notifications from "./Notifications";
@@ -41,6 +41,11 @@ export default function AdminDashboard() {
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [groupedBookings, setGroupedBookings] = useState([]);
+  
+  // Weigh items state
+  const [showWeighModal, setShowWeighModal] = useState(false);
+  const [weighingOrder, setWeighingOrder] = useState(null);
+  const [weighInputs, setWeighInputs] = useState({});
 
   // Get base order ID (remove -1, -2, etc. suffix)
   const getBaseOrderId = (orderId) => {
@@ -206,9 +211,12 @@ export default function AdminDashboard() {
           name: booking.services?.name || "Unknown Service",
           price: parseFloat(booking.total_price) || 0,
           quantity: booking.quantity || 1,
+          actual_weight: booking.actual_weight,
+          pricePerUnit: parseFloat(booking.services?.price) || 0,
           unit: booking.services?.unit || "per item",
           status: booking.status,
-          payment_status: booking.payment_status
+          payment_status: booking.payment_status,
+          services: booking.services // Keep original service data
         });
         
         groupedMap[baseOrderId].bookingIds.push(booking.id);
@@ -518,6 +526,74 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error("Error confirming payment:", error);
       alert("Failed to confirm payment. Please try again.");
+    }
+  };
+
+  // Open weigh modal for an order
+  const openWeighModal = (order) => {
+    setWeighingOrder(order);
+    // Initialize weight inputs for each service
+    const initialInputs = {};
+    order.services.forEach((service, idx) => {
+      initialInputs[idx] = {
+        actualWeight: service.actual_weight || service.quantity || 1,
+        pricePerUnit: service.pricePerUnit || parseFloat(service.services?.price || service.price || 0)
+      };
+    });
+    setWeighInputs(initialInputs);
+    setShowWeighModal(true);
+  };
+
+  // Calculate total for weighed items
+  const calculateWeighedTotal = () => {
+    let total = 0;
+    Object.values(weighInputs).forEach(input => {
+      total += (parseFloat(input.actualWeight) || 0) * (parseFloat(input.pricePerUnit) || 0);
+    });
+    return total;
+  };
+
+  // Save weighed items
+  const saveWeighedItems = async () => {
+    if (!weighingOrder) return;
+    
+    try {
+      // Update each booking with actual weight and recalculated price
+      for (let i = 0; i < weighingOrder.services.length; i++) {
+        const service = weighingOrder.services[i];
+        const input = weighInputs[i];
+        const actualWeight = parseFloat(input?.actualWeight) || 1;
+        const pricePerUnit = parseFloat(input?.pricePerUnit) || 0;
+        const newTotalPrice = actualWeight * pricePerUnit;
+
+        await supabase
+          .from('bookings')
+          .update({
+            quantity: actualWeight,
+            actual_weight: actualWeight,
+            total_price: newTotalPrice,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', service.id);
+      }
+
+      // Notify customer
+      const totalAmount = calculateWeighedTotal();
+      await supabase.from('notifications').insert({
+        user_id: weighingOrder.user_id,
+        title: 'Items Weighed - Ready for Payment',
+        message: `Your laundry for order ${weighingOrder.baseOrderId} has been weighed. Total amount: ₱${totalAmount.toFixed(2)}. Please proceed with payment.`,
+        type: 'info'
+      });
+
+      alert(`Items weighed successfully! Total: ₱${totalAmount.toFixed(2)}`);
+      setShowWeighModal(false);
+      setWeighingOrder(null);
+      setWeighInputs({});
+      fetchBookings();
+    } catch (error) {
+      console.error("Error saving weighed items:", error);
+      alert("Failed to save weighed items. Please try again.");
     }
   };
 
@@ -865,26 +941,75 @@ export default function AdminDashboard() {
 
   const generateReceiptText = (b) => {
     const lines = [];
-    lines.push('Laundry Connect - Receipt');
-    lines.push('---------------------------------');
-    lines.push(`Order ID: ${b.order_id}`);
+    lines.push('========================================');
+    lines.push('         LAUNDRY CONNECT RECEIPT        ');
+    lines.push('========================================');
+    lines.push('');
+    lines.push(`Order ID: ${b.order_id || b.baseOrderId || 'N/A'}`);
     if (b.payment_id) {
       lines.push(`Payment ID: ${b.payment_id}`);
     }
-    lines.push(`Customer: ${b.profiles?.name || 'N/A'}`);
-    lines.push(`Email: ${b.profiles?.email || 'N/A'}`);
-    lines.push(`Service: ${b.services?.name || 'N/A'}`);
-    lines.push(`Quantity: ${b.quantity || 1}`);
-    lines.push(`Pickup: ${formatDate(b.pickup_date)} ${formatTime(b.pickup_time)}`);
-    lines.push(`Payment Method: ${b.payment_method || 'N/A'}`);
-    if (b.payment_status) {
-      lines.push(`Payment Status: ${b.payment_status}`);
+    lines.push(`Date: ${new Date().toLocaleDateString('en-US')}`);
+    lines.push('');
+    lines.push('----------------------------------------');
+    lines.push('CUSTOMER INFORMATION');
+    lines.push('----------------------------------------');
+    lines.push(`Name: ${b.profiles?.name || b.customerName || 'N/A'}`);
+    lines.push(`Email: ${b.profiles?.email || b.customerEmail || 'N/A'}`);
+    lines.push('');
+    lines.push('----------------------------------------');
+    lines.push('PICKUP DETAILS');
+    lines.push('----------------------------------------');
+    lines.push(`Pickup Date: ${formatDate(b.pickup_date || b.pickupDate)}`);
+    lines.push(`Pickup Time: ${formatTime(b.pickup_time || b.pickupTime)}`);
+    lines.push('');
+    lines.push('----------------------------------------');
+    lines.push('SERVICES');
+    lines.push('----------------------------------------');
+    
+    let subtotal = 0;
+    
+    // Handle grouped orders with multiple services
+    if (b.allServices && b.allServices.length > 0) {
+      b.allServices.forEach((service, idx) => {
+        const weight = service.actual_weight || service.quantity || 1;
+        const pricePerUnit = parseFloat(service.pricePerUnit || service.services?.price || service.price || 0);
+        const unit = service.unit || service.services?.unit || 'per kg';
+        const itemTotal = weight * pricePerUnit;
+        subtotal += itemTotal;
+        
+        lines.push(`${idx + 1}. ${service.name}`);
+        lines.push(`   ${weight} ${unit.replace('per ', '')} x ₱${pricePerUnit.toFixed(2)} = ₱${itemTotal.toFixed(2)}`);
+      });
+    } else if (b.services?.name) {
+      // Single service booking
+      const weight = b.actual_weight || b.quantity || 1;
+      const pricePerUnit = parseFloat(b.services?.price || 0);
+      const unit = b.services?.unit || 'per kg';
+      const itemTotal = weight * pricePerUnit;
+      subtotal = itemTotal;
+      
+      lines.push(`1. ${b.services.name}`);
+      lines.push(`   ${weight} ${unit.replace('per ', '')} x ₱${pricePerUnit.toFixed(2)} = ₱${itemTotal.toFixed(2)}`);
     }
-    lines.push(`Status: ${b.status}`);
+    
     lines.push('');
-    lines.push(`Total: ₱${b.total_price}`);
+    lines.push('----------------------------------------');
+    const totalAmount = parseFloat(b.total_price || b.totalPrice || subtotal || 0);
+    lines.push(`SUBTOTAL:                    ₱${subtotal.toFixed(2)}`);
+    lines.push(`TOTAL:                       ₱${totalAmount.toFixed(2)}`);
+    lines.push('----------------------------------------');
     lines.push('');
-    lines.push('Thank you for choosing Laundry Connect.');
+    lines.push(`Payment Status: ${b.payment_status || 'unpaid'}`);
+    lines.push(`Order Status: ${b.status || 'pending'}`);
+    if (b.payment_method) {
+      lines.push(`Payment Method: ${b.payment_method}`);
+    }
+    lines.push('');
+    lines.push('========================================');
+    lines.push('     Thank you for choosing us!        ');
+    lines.push('         Laundry Connect               ');
+    lines.push('========================================');
     return lines.join('\n');
   };
 
@@ -1182,16 +1307,27 @@ export default function AdminDashboard() {
                             
                             {/* Services List */}
                             <div className="mt-2 space-y-1">
-                              {order.services.map((service, idx) => (
+                              {order.services.map((service, idx) => {
+                                const weight = service.actual_weight || service.quantity || 1;
+                                const unit = service.unit || service.services?.unit || 'per kg';
+                                const pricePerUnit = parseFloat(service.pricePerUnit || service.services?.price || 0);
+                                const displayPrice = service.actual_weight ? (weight * pricePerUnit) : service.price;
+                                
+                                return (
                                 <div key={idx} className="flex items-center justify-between text-xs sm:text-sm bg-gray-50 px-2 py-1.5 rounded group">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-gray-700">{service.name}</span>
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <span className="text-gray-700 truncate">{service.name}</span>
+                                    {service.actual_weight && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded whitespace-nowrap">
+                                        {weight} {unit.replace('per ', '')}
+                                      </span>
+                                    )}
                                     {service.status === 'cancelled' && (
                                       <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded">removed</span>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="font-medium text-gray-800">₱{service.price.toFixed(2)}</span>
+                                    <span className="font-medium text-gray-800">₱{displayPrice.toFixed(2)}</span>
                                     {/* Delete individual service button */}
                                     {service.status !== 'cancelled' && service.status !== 'completed' && (
                                       <button
@@ -1230,7 +1366,8 @@ export default function AdminDashboard() {
                                     )}
                                   </div>
                                 </div>
-                              ))}
+                              );
+                              })}
                             </div>
                             
                             <p className="text-xs sm:text-sm text-gray-600 mt-2">
@@ -1255,6 +1392,17 @@ export default function AdminDashboard() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {/* Weigh Items Button */}
+                            {(currentUserRole === 'staff' || currentUserRole === 'admin') && order.status !== 'cancelled' && order.status !== 'completed' && (
+                              <button
+                                onClick={() => openWeighModal(order)}
+                                className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
+                                title="Weigh Items"
+                              >
+                                <Scale className="w-4 h-4" />
+                                <span>Weigh</span>
+                              </button>
+                            )}
                             {/* Confirm All Payments */}
                             {(currentUserRole === 'staff' || currentUserRole === 'admin') && order.payment_status === 'unpaid' && (
                               <button
@@ -1661,6 +1809,25 @@ export default function AdminDashboard() {
                     Decline
                   </button>
                 )}
+                {/* Weigh Button in Modal */}
+                {selectedBooking?.status !== 'cancelled' && selectedBooking?.status !== 'completed' && (
+                  <button
+                    onClick={() => {
+                      if (selectedBooking?.allServices) {
+                        openWeighModal({
+                          ...selectedBooking,
+                          baseOrderId: selectedBooking.order_id,
+                          services: selectedBooking.allServices
+                        });
+                        setSelectedBooking(null);
+                      }
+                    }}
+                    className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-2"
+                  >
+                    <Scale className="w-4 h-4" />
+                    Weigh
+                  </button>
+                )}
                 <button
                   onClick={() => selectedBooking && downloadReceipt(selectedBooking)}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
@@ -1668,6 +1835,119 @@ export default function AdminDashboard() {
                   Download Receipt
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Weigh Items Modal */}
+      {showWeighModal && weighingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-lg w-full relative shadow-lg max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => {
+                setShowWeighModal(false);
+                setWeighingOrder(null);
+                setWeighInputs({});
+              }} 
+              className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer"
+            >
+              ✕
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                <Scale className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Weigh Items</h2>
+                <p className="text-sm text-gray-500">Order: {weighingOrder.baseOrderId}</p>
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                <strong>Customer:</strong> {weighingOrder.customerName}
+              </p>
+              <p className="text-xs text-blue-600">{weighingOrder.customerEmail}</p>
+            </div>
+
+            <div className="space-y-4">
+              {weighingOrder.services.map((service, idx) => {
+                const unit = service.unit || service.services?.unit || 'per kg';
+                const pricePerUnit = weighInputs[idx]?.pricePerUnit || parseFloat(service.services?.price || service.price || 0);
+                const actualWeight = weighInputs[idx]?.actualWeight || service.quantity || 1;
+                const itemTotal = actualWeight * pricePerUnit;
+                const isKgService = unit.includes('kg');
+                
+                return (
+                  <div key={idx} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-800">{service.name}</h3>
+                        <p className="text-sm text-gray-500">₱{pricePerUnit.toFixed(2)} / {unit.replace('per ', '')}</p>
+                      </div>
+                      {service.status === 'cancelled' && (
+                        <span className="text-xs px-2 py-1 bg-red-100 text-red-600 rounded">Cancelled</span>
+                      )}
+                    </div>
+                    
+                    {service.status !== 'cancelled' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">
+                            {isKgService ? 'Actual Weight (kg)' : 'Quantity'}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={actualWeight}
+                            onChange={(e) => setWeighInputs(prev => ({
+                              ...prev,
+                              [idx]: { ...prev[idx], actualWeight: e.target.value, pricePerUnit }
+                            }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Item Total</label>
+                          <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg font-bold text-amber-700">
+                            ₱{itemTotal.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Total Section */}
+            <div className="mt-6 bg-gradient-to-r from-amber-500 to-orange-500 rounded-lg p-4 text-white">
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Total Amount</span>
+                <span className="text-2xl font-bold">₱{calculateWeighedTotal().toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowWeighModal(false);
+                  setWeighingOrder(null);
+                  setWeighInputs({});
+                }}
+                className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveWeighedItems}
+                className="flex-1 py-3 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition flex items-center justify-center gap-2"
+              >
+                <Scale className="w-4 h-4" />
+                Save & Notify Customer
+              </button>
             </div>
           </div>
         </div>

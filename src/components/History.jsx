@@ -116,6 +116,8 @@ export default function History() {
           name: booking.services?.name || "Unknown Service",
           price: parseFloat(booking.total_price) || 0,
           quantity: booking.quantity || 1,
+          actual_weight: booking.actual_weight,
+          pricePerUnit: parseFloat(booking.services?.price) || 0,
           unit: booking.services?.unit || "per item"
         });
         
@@ -417,20 +419,39 @@ export default function History() {
                   Services ({selectedOrder.services.length})
                 </h3>
                 <div className="space-y-2">
-                  {selectedOrder.services.map((service, index) => (
+                  {selectedOrder.services.map((service, index) => {
+                    const weight = service.actual_weight || service.quantity || 1;
+                    const unit = service.unit || 'per kg';
+                    const pricePerUnit = service.pricePerUnit || 0;
+                    const hasWeighed = !!service.actual_weight;
+                    
+                    return (
                     <div 
                       key={index}
                       className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                     >
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 text-sm">{service.name}</p>
                         <p className="text-xs text-gray-500">
-                          {service.quantity} {service.unit}
+                          {hasWeighed ? (
+                            <span className="flex items-center gap-1">
+                              <span className="text-amber-600 font-medium">{weight} {unit.replace('per ', '')}</span>
+                              <span>× ₱{pricePerUnit.toFixed(2)}</span>
+                            </span>
+                          ) : (
+                            <span>{service.quantity} {unit}</span>
+                          )}
                         </p>
                       </div>
-                      <p className="font-semibold text-gray-900">₱{service.price.toFixed(2)}</p>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900">₱{service.price.toFixed(2)}</p>
+                        {hasWeighed && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">weighed</span>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
