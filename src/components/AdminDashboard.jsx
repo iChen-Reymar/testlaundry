@@ -1246,7 +1246,9 @@ export default function AdminDashboard() {
                                 order_id: order.baseOrderId,
                                 profiles: { name: order.customerName, email: order.customerEmail },
                                 total_price: order.totalPrice,
-                                allServices: order.services
+                                allServices: order.services,
+                                bookingIds: order.bookingIds,
+                                user_id: order.user_id
                               })}
                               className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
                               title="View Details"
@@ -1535,43 +1537,66 @@ export default function AdminDashboard() {
       {/* Booking Details Modal */}
       {selectedBooking && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg max-h-[90vh] overflow-y-auto">
             <button onClick={() => setSelectedBooking(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
             <h2 className="text-xl font-bold text-blue-500 mb-4">Booking Details</h2>
             
             <div className="space-y-3">
               <div className="flex justify-between">
                 <p className="text-gray-500">Order ID:</p>
-                <p className="font-semibold">{selectedBooking?.order_id || "N/A"}</p>
+                <p className="font-semibold text-sm">{selectedBooking?.order_id || selectedBooking?.baseOrderId || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Customer:</p>
-                <p className="font-semibold">{selectedBooking?.profiles?.name || selectedBooking?.profiles?.email || "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.profiles?.name || selectedBooking?.customerName || selectedBooking?.profiles?.email || "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Email:</p>
-                <p className="font-semibold text-sm">{selectedBooking?.profiles?.email || "N/A"}</p>
+                <p className="font-semibold text-sm">{selectedBooking?.profiles?.email || selectedBooking?.customerEmail || "N/A"}</p>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Service:</p>
-                <p className="font-semibold">{selectedBooking?.services?.name || "N/A"}</p>
+              
+              {/* Services List */}
+              <div className="border-t pt-3">
+                <p className="text-gray-500 mb-2">Services ({selectedBooking?.allServices?.length || (selectedBooking?.services?.name ? 1 : 0)}):</p>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {selectedBooking?.allServices && selectedBooking.allServices.length > 0 ? (
+                    selectedBooking.allServices.map((service, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 p-2 rounded group">
+                        <div>
+                          <p className="font-medium text-gray-800">{service.name}</p>
+                          <p className="text-xs text-gray-500">Qty: {service.quantity || 1} {service.unit || ''}</p>
+                        </div>
+                        <p className="font-semibold">₱{parseFloat(service.price || 0).toFixed(2)}</p>
+                      </div>
+                    ))
+                  ) : selectedBooking?.services?.name ? (
+                    <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                      <div>
+                        <p className="font-medium text-gray-800">{selectedBooking.services.name}</p>
+                        <p className="text-xs text-gray-500">Qty: {selectedBooking.quantity || 1}</p>
+                      </div>
+                      <p className="font-semibold">₱{parseFloat(selectedBooking.total_price || 0).toFixed(2)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 italic">No services found</p>
+                  )}
+                </div>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Quantity:</p>
-                <p className="font-semibold">{selectedBooking?.quantity || "N/A"}</p>
-              </div>
+
               <div className="flex justify-between">
                 <p className="text-gray-500">Pickup Date:</p>
-                <p className="font-semibold">{selectedBooking?.pickup_date ? formatDate(selectedBooking.pickup_date) : "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.pickup_date ? formatDate(selectedBooking.pickup_date) : selectedBooking?.pickupDate ? formatDate(selectedBooking.pickupDate) : "N/A"}</p>
               </div>
               <div className="flex justify-between">
                 <p className="text-gray-500">Pickup Time:</p>
-                <p className="font-semibold">{selectedBooking?.pickup_time ? formatTime(selectedBooking.pickup_time) : "N/A"}</p>
+                <p className="font-semibold">{selectedBooking?.pickup_time ? formatTime(selectedBooking.pickup_time) : selectedBooking?.pickupTime ? formatTime(selectedBooking.pickupTime) : "N/A"}</p>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Payment Method:</p>
-                <p className="font-semibold">{selectedBooking?.payment_method || "N/A"}</p>
-              </div>
+              {selectedBooking?.payment_method && (
+                <div className="flex justify-between">
+                  <p className="text-gray-500">Payment Method:</p>
+                  <p className="font-semibold">{selectedBooking.payment_method}</p>
+                </div>
+              )}
               {selectedBooking?.payment_id && (
                 <div className="flex justify-between">
                   <p className="text-gray-500">Payment ID:</p>
@@ -1585,7 +1610,7 @@ export default function AdminDashboard() {
                   selectedBooking?.payment_status === 'unpaid' ? 'bg-yellow-100 text-yellow-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
-                  {selectedBooking?.payment_status || "N/A"}
+                  {selectedBooking?.payment_status || "unpaid"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1594,12 +1619,21 @@ export default function AdminDashboard() {
               </div>
               <div className="flex justify-between border-t pt-3">
                 <p className="text-gray-500 font-medium">Total:</p>
-                <p className="font-semibold text-lg">₱{selectedBooking?.total_price || "0.00"}</p>
+                <p className="font-semibold text-lg text-blue-600">₱{parseFloat(selectedBooking?.total_price || selectedBooking?.totalPrice || 0).toFixed(2)}</p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2 justify-end">
                 {selectedBooking?.payment_status === 'unpaid' && selectedBooking?.status !== 'cancelled' && (
                   <button
-                    onClick={() => selectedBooking?.id && confirmPayment(selectedBooking.id)}
+                    onClick={async () => {
+                      // Handle grouped orders (multiple bookingIds) or single booking (id)
+                      if (selectedBooking?.bookingIds && selectedBooking.bookingIds.length > 0) {
+                        for (const bookingId of selectedBooking.bookingIds) {
+                          await confirmPayment(bookingId);
+                        }
+                      } else if (selectedBooking?.id) {
+                        await confirmPayment(selectedBooking.id);
+                      }
+                    }}
                     className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2"
                   >
                     <CreditCard className="w-4 h-4" />
@@ -1608,8 +1642,15 @@ export default function AdminDashboard() {
                 )}
                 {(selectedBooking?.status === 'pending' || selectedBooking?.status === 'confirmed') && (
                   <button
-                    onClick={() => {
-                      if (selectedBooking?.id) {
+                    onClick={async () => {
+                      // Handle grouped orders (multiple bookingIds) or single booking (id)
+                      if (selectedBooking?.bookingIds && selectedBooking.bookingIds.length > 0) {
+                        if (!confirm(`Decline all ${selectedBooking.bookingIds.length} service(s) in this order?`)) return;
+                        for (const bookingId of selectedBooking.bookingIds) {
+                          await declineBooking(bookingId);
+                        }
+                        setSelectedBooking(null);
+                      } else if (selectedBooking?.id) {
                         declineBooking(selectedBooking.id);
                         setSelectedBooking(null);
                       }
