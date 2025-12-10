@@ -760,6 +760,12 @@ export default function AdminDashboard() {
   };
 
   const toggleServiceStatus = async (serviceId, currentStatus) => {
+    // Only admin can toggle service status
+    if (currentUserRole !== 'admin') {
+      alert("Only administrators can change service status");
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('services')
@@ -778,6 +784,11 @@ export default function AdminDashboard() {
 
   // Service Management Functions
   const openAddServiceModal = () => {
+    // Only admin can add services
+    if (currentUserRole !== 'admin') {
+      alert("Only administrators can add services");
+      return;
+    }
     setEditingService(null);
     setServiceForm({
       name: '',
@@ -794,6 +805,11 @@ export default function AdminDashboard() {
   };
 
   const openEditServiceModal = (service) => {
+    // Only admin can edit services
+    if (currentUserRole !== 'admin') {
+      alert("Only administrators can edit services");
+      return;
+    }
     setEditingService(service);
     setServiceForm({
       name: service.name || '',
@@ -867,6 +883,12 @@ export default function AdminDashboard() {
   };
 
   const handleServiceSubmit = async () => {
+    // Only admin can add/edit services
+    if (currentUserRole !== 'admin') {
+      alert("Only administrators can add or edit services");
+      return;
+    }
+
     if (!serviceForm.name || !serviceForm.price) {
       alert("Please fill in service name and price");
       return;
@@ -927,6 +949,12 @@ export default function AdminDashboard() {
   };
 
   const deleteService = async (serviceId, serviceName) => {
+    // Only admin can delete services
+    if (currentUserRole !== 'admin') {
+      alert("Only administrators can delete services");
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete "${serviceName}"? This action cannot be undone.`)) return;
 
     try {
@@ -1607,22 +1635,28 @@ export default function AdminDashboard() {
               <div className="space-y-3 sm:space-y-4">
                 {/* Add Service Button */}
                 <div className="flex justify-between items-center gap-2">
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">Manage Services</h3>
-                  <button
-                    onClick={openAddServiceModal}
-                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition cursor-pointer text-sm"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Add Service</span>
-                    <span className="sm:hidden">Add</span>
-                  </button>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">
+                    {currentUserRole === 'admin' ? 'Manage Services' : 'View Services'}
+                  </h3>
+                  {currentUserRole === 'admin' && (
+                    <button
+                      onClick={openAddServiceModal}
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition cursor-pointer text-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="hidden sm:inline">Add Service</span>
+                      <span className="sm:hidden">Add</span>
+                    </button>
+                  )}
                 </div>
 
                 {services.length === 0 ? (
                   <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow text-center">
                     <Package className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500 text-sm sm:text-base">No services yet</p>
-                    <p className="text-xs sm:text-sm text-gray-400 mt-1">Click "Add Service" to create your first service</p>
+                    {currentUserRole === 'admin' && (
+                      <p className="text-xs sm:text-sm text-gray-400 mt-1">Click "Add Service" to create your first service</p>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -1659,36 +1693,39 @@ export default function AdminDashboard() {
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-3 pt-3 border-t border-gray-100">
-                          {/* Edit Button */}
-                          <button
-                            onClick={() => openEditServiceModal(service)}
-                            className="p-1.5 sm:p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
-                            title="Edit Service"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          {/* Toggle Status Button */}
-                          <button
-                            onClick={() => toggleServiceStatus(service.id, service.is_active)}
-                            className={`p-1.5 sm:p-2 rounded-lg transition cursor-pointer ${
-                              service.is_active 
-                                ? 'bg-yellow-100 text-yellow-600 hover:bg-yellow-200' 
-                                : 'bg-green-100 text-green-600 hover:bg-green-200'
-                            }`}
-                            title={service.is_active ? 'Deactivate' : 'Activate'}
-                          >
-                            {service.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                          </button>
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => deleteService(service.id, service.name)}
-                            className="p-1.5 sm:p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
-                            title="Delete Service"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {/* Only show action buttons for admin */}
+                        {currentUserRole === 'admin' && (
+                          <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-3 pt-3 border-t border-gray-100">
+                            {/* Edit Button */}
+                            <button
+                              onClick={() => openEditServiceModal(service)}
+                              className="p-1.5 sm:p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                              title="Edit Service"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            {/* Toggle Status Button */}
+                            <button
+                              onClick={() => toggleServiceStatus(service.id, service.is_active)}
+                              className={`p-1.5 sm:p-2 rounded-lg transition cursor-pointer ${
+                                service.is_active 
+                                  ? 'bg-yellow-100 text-yellow-600 hover:bg-yellow-200' 
+                                  : 'bg-green-100 text-green-600 hover:bg-green-200'
+                              }`}
+                              title={service.is_active ? 'Deactivate' : 'Activate'}
+                            >
+                              {service.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                            </button>
+                            {/* Delete Button */}
+                            <button
+                              onClick={() => deleteService(service.id, service.name)}
+                              className="p-1.5 sm:p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
+                              title="Delete Service"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
