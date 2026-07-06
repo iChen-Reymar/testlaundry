@@ -2,112 +2,69 @@
 
 A comprehensive laundry service management system with role-based access control.
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Database Setup
+### 1. MySQL Database Setup
 
-1. Open your Supabase project
-2. Go to **SQL Editor**
-3. Copy and paste the entire contents of `database_schema.sql`
-4. Click **Run**
+See **`MYSQL_SETUP.md`** for full Navicat connection steps.
 
-See `DATABASE_SETUP.md` for detailed instructions.
+1. Install MySQL and connect with **Navicat**
+2. Run `database_schema.sql` in Navicat Query window
+3. Update `.env` with your MySQL password
 
 ### 2. Create Your First Admin
 
-After running the schema, sign up a user, then run:
+After signing up in the app, run in Navicat:
 
 ```sql
-UPDATE profiles
-SET role = 'admin'
-WHERE email = 'your-email@example.com';
+UPDATE profiles SET role = 'admin' WHERE email = 'your-email@example.com';
 ```
 
 ### 3. Start the Application
 
 ```bash
 npm install
-npm run dev
+npm run server    # Terminal 1 - API on port 3001
+npm run dev       # Terminal 2 - Frontend on port 5173
 ```
 
-## 👥 User Roles
+## User Roles
 
-### **Admin** (`admin`)
+### Admin (`admin`)
 - Full system access
-- Manage users (promote to staff, demote, delete)
-- Manage services (create, edit, delete)
-- View and manage all bookings
-- Access to Admin Dashboard
+- Manage users, services, and all bookings
+- Admin Dashboard
 
-### **Staff** (`staff`)
-- View all bookings
-- Update booking statuses
-- View all users (read-only)
-- View services (read-only)
-- Access to Staff Dashboard (limited features)
-- **Cannot** delete users or manage services
+### Staff (`staff`)
+- View and manage bookings
+- Confirm payments
+- Cannot delete users or manage services
 
-### **User** (`user`)
-- View active services
-- Create bookings
-- View own booking history
-- Update own profile
-- **Cannot** access admin/staff dashboard
+### Customer (`customer` / `user`)
+- Book services and view history
+- Update profile
 
-## 📁 Project Structure
+## Tech Stack
+
+- **Frontend:** React + Vite
+- **Backend:** Express.js + MySQL
+- **Database:** MySQL (manage with Navicat)
+- **Authentication:** JWT (local API)
+
+## Project Structure
 
 ```
-Laundry_Connect_Finals/
-├── database_schema.sql          # Complete database schema
-├── DATABASE_SETUP.md            # Database setup guide
-├── IMPLEMENTATION_SUMMARY.md    # Implementation details
+Laundry/
+├── database_schema.sql    # MySQL schema (run in Navicat)
+├── MYSQL_SETUP.md         # Navicat + MySQL setup guide
+├── server/                # Express API
+│   ├── index.js
+│   ├── db.js
+│   └── middleware/
 ├── src/
-│   ├── components/
-│   │   ├── Dashboard.jsx        # Main dashboard (with staff button)
-│   │   ├── AdminDashboard.jsx  # Admin/Staff dashboard
-│   │   ├── Profile.jsx          # User profile
-│   │   └── ...
-│   ├── context/
-│   │   └── authcontext.jsx      # Auth utilities
-│   └── lib/
-│       └── supabaseClient.js   # Supabase client
-└── README.md
+│   ├── lib/apiClient.js   # API client (replaces Supabase)
+│   └── components/
+└── uploads/               # Profile & service images
 ```
 
-## 🔐 Security Features
-
-- **Row Level Security (RLS)**: Database-level access control
-- **Role-based permissions**: Frontend and backend validation
-- **Secure authentication**: Supabase Auth integration
-
-## 📚 Documentation
-
-- **`DATABASE_SETUP.md`**: Step-by-step database setup
-- **`IMPLEMENTATION_SUMMARY.md`**: Complete feature documentation
-- **`database_schema.sql`**: Database schema with comments
-
-## 🎯 Key Features
-
-✅ Role-based access control (Admin, Staff, User)  
-✅ Staff management (promote/demote users)  
-✅ Booking management system  
-✅ Service management (admin only)  
-✅ User profile management  
-✅ Secure authentication  
-✅ Responsive design  
-
-## 🛠️ Tech Stack
-
-- **Frontend**: React + Vite
-- **Backend**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **Storage**: Supabase Storage (for profile images)
-
-## 📝 Notes
-
-- All new users are created as 'user' by default
-- Only admins can promote users to staff
-- Staff can manage bookings but cannot delete users
-- Users can only view and book active services
-
-For detailed implementation information, see `IMPLEMENTATION_SUMMARY.md`.
+For detailed database setup, see **`MYSQL_SETUP.md`**.
