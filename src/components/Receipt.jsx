@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { ChevronLeft, Download, Printer, Receipt as ReceiptIcon, CheckCircle, FileText } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import api from "../lib/apiClient";
 
 export default function Receipt() {
   const navigate = useNavigate();
@@ -14,7 +14,7 @@ export default function Receipt() {
 
   const checkAuth = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) {
         navigate("/login");
         return;

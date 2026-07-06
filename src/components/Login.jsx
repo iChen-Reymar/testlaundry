@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, Mail, Lock, LogIn, Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient";
+import api from "../lib/apiClient";
 import logo from "../assets/logo.png";
 
 export default function Login() {
@@ -11,18 +11,16 @@ export default function Login() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Check if already logged in
   useEffect(() => {
     checkExistingSession();
   }, []);
 
   const checkExistingSession = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (session) {
         const userProfile = localStorage.getItem('userProfile');
         if (userProfile) {
-          // User is already logged in, redirect to dashboard
           navigate("/dashboard", { replace: true });
         }
       }
@@ -45,41 +43,13 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await api.auth.signInWithPassword({
         email: loginData.email,
         password: loginData.password,
       });
       if (signInError) throw signInError;
 
-      // Try to fetch profile, create if it doesn't exist
-      let { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", data.user.id)
-        .single();
-      
-      // If profile doesn't exist, create it
-      if (profileError && (profileError.code === 'PGRST116' || profileError.message?.includes('No rows'))) {
-        const { data: newProfile, error: createError } = await supabase
-          .from("profiles")
-          .insert({
-            id: data.user.id,
-            email: data.user.email || loginData.email,
-            name: data.user.user_metadata?.name || '',
-            role: 'user'
-          })
-          .select()
-          .single();
-        
-        if (createError) {
-          console.error("Error creating profile:", createError);
-          throw new Error("Failed to create user profile. Please contact support.");
-        }
-        profile = newProfile;
-      } else if (profileError) {
-        console.error("Profile fetch error:", profileError);
-        throw profileError;
-      }
+      const profile = data.user;
 
       localStorage.setItem(
         "userProfile",
@@ -106,8 +76,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-8 border border-gray-200">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-6 sm:py-8">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-6 sm:p-8 border border-gray-200">
         <button
           onClick={() => navigate("/")}
           className="mb-6 p-2 hover:bg-gray-100 rounded-lg transition"

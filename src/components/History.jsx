@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Trash2, Eye, Package, X, Calendar, Clock, XCircle } from "lucide-react";
+import { ChevronLeft, Trash2, Eye, Package, X, Calendar, Clock, XCircle, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
+
+function StarDisplay({ rating, size = "sm" }) {
+  const iconClass = size === "sm" ? "w-3.5 h-3.5" : "w-5 h-5";
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`${iconClass} ${star <= rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function History() {
   const navigate = useNavigate();
@@ -10,6 +24,10 @@ export default function History() {
   const [userId, setUserId] = useState(null);
   const [userRole, setUserRole] = useState('user');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [ratingsMap, setRatingsMap] = useState({});
+  const [ratingScore, setRatingScore] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -22,9 +40,30 @@ export default function History() {
     }
   }, [userId]);
 
+  useEffect(() => {
+    const rateOrderId = sessionStorage.getItem('rateOrderId');
+    if (rateOrderId && history.length > 0) {
+      const order = history.find((o) => o.baseOrderId === rateOrderId);
+      if (order) {
+        setSelectedOrder(order);
+        setRatingScore(0);
+        setRatingComment("");
+      }
+      sessionStorage.removeItem('rateOrderId');
+    }
+  }, [history]);
+
+  useEffect(() => {
+    if (selectedOrder) {
+      const existing = ratingsMap[selectedOrder.baseOrderId];
+      setRatingScore(existing?.rating || 0);
+      setRatingComment(existing?.comment || "");
+    }
+  }, [selectedOrder, ratingsMap]);
+
   const checkAuth = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) {
         navigate("/login");
         return;
@@ -60,30 +99,11 @@ export default function History() {
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('bookings')
-        .select(`
-          *,
-          services:service_id (name, price, unit),
-          profiles:user_id (name, email)
-        `);
+      const allBookings = await api.bookings.list();
 
-      if (userRole !== 'admin') {
-        query = query.eq('user_id', userId);
-      }
-
-      const { data: allBookings, error } = await query.order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // For regular users, filter out hidden bookings
       let filteredBookings = allBookings || [];
       if (userRole !== 'admin' && userId) {
-        const { data: hiddenBookings } = await supabase
-          .from('user_hidden_bookings')
-          .select('booking_id')
-          .eq('user_id', userId);
-        
+        const hiddenBookings = await api.hiddenBookings.list();
         const hiddenIds = new Set((hiddenBookings || []).map(h => h.booking_id));
         filteredBookings = (allBookings || []).filter(booking => !hiddenIds.has(booking.id));
       }
@@ -136,6 +156,13 @@ export default function History() {
         (a, b) => new Date(b.created_at) - new Date(a.created_at)
       );
 
+      const ratings = await api.ratings.list().catch(() => []);
+      const map = {};
+      (ratings || []).forEach((r) => {
+        map[r.order_id] = r;
+      });
+      setRatingsMap(map);
+
       setHistory(ordersArray);
     } catch (error) {
       console.error("Error fetching bookings:", error);
@@ -162,16 +189,13 @@ export default function History() {
       if (userRole === 'admin') {
         // Delete all bookings in this order
         for (const bookingId of order.bookingIds) {
-          await supabase.from('bookings').delete().eq('id', bookingId);
+          await api.bookings.delete(bookingId);
         }
         alert("Order permanently deleted!");
       } else {
         // Hide all bookings in this order for the user
         for (const bookingId of order.bookingIds) {
-          await supabase.from('user_hidden_bookings').insert({
-            user_id: userId,
-            booking_id: bookingId
-          }).select();
+          await api.hiddenBookings.hide(bookingId);
         }
         alert("Order removed from your history!");
       }
@@ -201,26 +225,19 @@ export default function History() {
     try {
       // Update all bookings in this order to cancelled
       for (const bookingId of order.bookingIds) {
-        await supabase
-          .from('bookings')
-          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-          .eq('id', bookingId);
+        await api.bookings.cancel(bookingId);
       }
 
-      // Notify all admin and staff
-      const { data: staffAndAdmins } = await supabase
-        .from('profiles')
-        .select('id')
-        .in('role', ['admin', 'staff']);
+      const staffAndAdmins = await api.profiles.byRole(['admin', 'staff']);
 
       if (staffAndAdmins && staffAndAdmins.length > 0) {
         const notifications = staffAndAdmins.map(user => ({
           user_id: user.id,
           title: 'Booking Cancelled by Customer',
-          message: `Order ${order.baseOrderId} has been cancelled by the customer. Services: ${order.services.map(s => s.name).join(', ')}. Total: ₱${order.totalPrice.toFixed(2)}`,
+          message: `${order.customerName || 'Customer'} cancelled order ${order.baseOrderId}. Services: ${order.services.map(s => s.name).join(', ')}. Total: ₱${order.totalPrice.toFixed(2)}`,
           type: 'warning'
         }));
-        await supabase.from('notifications').insert(notifications);
+        await api.notifications.create(notifications);
       }
 
       alert("Booking cancelled successfully. Staff has been notified.");
@@ -229,6 +246,29 @@ export default function History() {
     } catch (error) {
       console.error("Error cancelling booking:", error);
       alert("Failed to cancel booking. Please try again.");
+    }
+  };
+
+  const handleSubmitRating = async () => {
+    if (!selectedOrder || ratingScore < 1) {
+      alert("Please select a star rating (1–5).");
+      return;
+    }
+
+    setRatingSubmitting(true);
+    try {
+      const rating = await api.ratings.submit({
+        order_id: selectedOrder.baseOrderId,
+        rating: ratingScore,
+        comment: ratingComment.trim() || undefined,
+      });
+      setRatingsMap((prev) => ({ ...prev, [selectedOrder.baseOrderId]: rating }));
+      alert("Thank you for your rating!");
+    } catch (error) {
+      console.error("Rating error:", error);
+      alert(error.message || "Failed to submit rating.");
+    } finally {
+      setRatingSubmitting(false);
     }
   };
 
@@ -251,9 +291,8 @@ export default function History() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col px-3 sm:px-4 py-4 sm:py-6">
-      {/* Header */}
-      <div className="max-w-2xl mx-auto w-full mb-4 sm:mb-6">
+    <div className="min-h-screen bg-gray-50 flex flex-col overflow-x-hidden">
+      <div className="page-container py-4 sm:py-6 flex-1 w-full max-w-3xl mx-auto">
         <div className="flex items-center gap-2 sm:gap-4 mb-4 sm:mb-6">
           <button
             onClick={() => navigate("/dashboard")}
@@ -271,10 +310,9 @@ export default function History() {
             </span>
           )}
         </div>
-      </div>
 
       {/* Order List */}
-      <div className="max-w-2xl mx-auto w-full space-y-2 sm:space-y-3">
+      <div className="space-y-2 sm:space-y-3 pb-6 safe-area-bottom">
         {loading ? (
           <div className="bg-white rounded-xl shadow-sm p-8 sm:p-12 text-center border border-gray-100">
             <div className="inline-block animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-2 border-blue-500 border-t-transparent"></div>
@@ -323,6 +361,19 @@ export default function History() {
                     ₱{order.totalPrice.toFixed(2)}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    {ratingsMap[order.baseOrderId] && (
+                      <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-yellow-50 rounded">
+                        <StarDisplay rating={ratingsMap[order.baseOrderId].rating} />
+                        <span className="text-[10px] sm:text-xs text-yellow-700 font-medium">
+                          {ratingsMap[order.baseOrderId].rating}/5
+                        </span>
+                      </div>
+                    )}
+                    {order.status === 'completed' && !ratingsMap[order.baseOrderId] && userRole !== 'admin' && userRole !== 'staff' && (
+                      <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-amber-100 text-amber-700 rounded text-[10px] sm:text-xs font-medium">
+                        Rate me
+                      </span>
+                    )}
                     <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${
                       order.status === 'completed' ? 'bg-green-100 text-green-700' :
                       order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
@@ -345,11 +396,12 @@ export default function History() {
           ))
         )}
       </div>
+      </div>
 
       {/* Order Details Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-hidden shadow-xl">
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel sm:max-w-md animate-slideUp overflow-hidden">
             {/* Modal Header */}
             <div className="bg-blue-600 text-white p-4 sm:p-5">
               <div className="flex items-start justify-between">
@@ -462,6 +514,81 @@ export default function History() {
                   <p className="text-xl font-bold text-blue-600">₱{selectedOrder.totalPrice.toFixed(2)}</p>
                 </div>
               </div>
+
+              {/* Rating Section */}
+              {selectedOrder.status === 'completed' && (
+                <div className="border-t border-gray-200 mt-4 pt-4">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Service Rating</h3>
+                  {ratingsMap[selectedOrder.baseOrderId] ? (
+                    <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-100">
+                      <div className="flex items-center gap-2 mb-1">
+                        <StarDisplay rating={ratingsMap[selectedOrder.baseOrderId].rating} size="md" />
+                        <span className="text-sm font-semibold text-yellow-800">
+                          {ratingsMap[selectedOrder.baseOrderId].rating} out of 5
+                        </span>
+                      </div>
+                      {ratingsMap[selectedOrder.baseOrderId].comment && (
+                        <p className="text-sm text-gray-600 mt-2 italic">
+                          "{ratingsMap[selectedOrder.baseOrderId].comment}"
+                        </p>
+                      )}
+                      <p className="text-[10px] text-gray-400 mt-2">
+                        Rated on {new Date(ratingsMap[selectedOrder.baseOrderId].created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ) : userRole !== 'admin' && userRole !== 'staff' ? (
+                    <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                      <p className="text-sm text-gray-700 mb-3">How was your experience? Tap a star to rate.</p>
+                      <div className="flex items-center gap-1 mb-3">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setRatingScore(star)}
+                            disabled={ratingSubmitting}
+                            className="p-1 hover:scale-110 transition disabled:opacity-50"
+                          >
+                            <Star
+                              className={`w-8 h-8 ${
+                                star <= ratingScore
+                                  ? "fill-yellow-400 text-yellow-400"
+                                  : "text-gray-300 hover:text-yellow-300"
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        value={ratingComment}
+                        onChange={(e) => setRatingComment(e.target.value)}
+                        placeholder="Optional comment..."
+                        rows={2}
+                        disabled={ratingSubmitting}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none mb-3"
+                      />
+                      <button
+                        onClick={handleSubmitRating}
+                        disabled={ratingSubmitting || ratingScore < 1}
+                        className="w-full py-2.5 bg-yellow-500 text-white rounded-lg font-medium hover:bg-yellow-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {ratingSubmitting ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            Submitting...
+                          </>
+                        ) : (
+                          <>
+                            <Star className="w-4 h-4" />
+                            Submit Rating
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">No rating submitted yet.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer */}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock, CreditCard, Calendar, ChevronRight, ChevronLeft as ChevronLeftIcon, Plus, Scale } from "lucide-react";
+import { ChevronLeft, Users, Package, ShoppingCart, TrendingUp, Eye, Edit, Trash2, CheckCircle, XCircle, Clock, CreditCard, Calendar, ChevronRight, ChevronLeft as ChevronLeftIcon, Plus, Scale, Search, MessageSquare, Send, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
 import Notifications from "./Notifications";
+import UserProfilePanel from "./UserProfilePanel";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -46,6 +47,14 @@ export default function AdminDashboard() {
   const [showWeighModal, setShowWeighModal] = useState(false);
   const [weighingOrder, setWeighingOrder] = useState(null);
   const [weighInputs, setWeighInputs] = useState({});
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [messageUser, setMessageUser] = useState(null);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [profileViewUser, setProfileViewUser] = useState(null);
+  const [profileDetails, setProfileDetails] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [messageProfileDetails, setMessageProfileDetails] = useState(null);
 
   // Get base order ID (remove -1, -2, etc. suffix)
   const getBaseOrderId = (orderId) => {
@@ -67,17 +76,14 @@ export default function AdminDashboard() {
     }
     
     if (activeTab === "overview") fetchStats();
-    if (activeTab === "bookings") {
-      fetchBookings();
-      setSelectedDate(null); // Reset date filter when switching to bookings tab
-    }
+    if (activeTab === "bookings") fetchBookings();
     if (activeTab === "users") fetchUsers();
     if (activeTab === "services") fetchServices();
   }, [activeTab]);
 
   const checkAuth = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) {
         navigate("/login");
         return;
@@ -94,17 +100,23 @@ export default function AdminDashboard() {
     }
   };
 
-  const checkAdmin = () => {
-    const userProfile = JSON.parse(localStorage.getItem('userProfile'));
-    if (!userProfile) {
-      navigate("/dashboard");
-      return;
-    }
-    setCurrentUserRole(userProfile.role || 'user');
-    setUserId(userProfile.id || null);
-    // Allow both admin and staff to access, but with different permissions
-    if (userProfile.role !== 'admin' && userProfile.role !== 'staff') {
-      alert("Access denied. Admin or Staff only.");
+  const checkAdmin = async () => {
+    try {
+      const { data: { user } } = await api.auth.getUser();
+      if (!user) {
+        navigate("/dashboard");
+        return;
+      }
+
+      setCurrentUserRole(user.role || 'user');
+      setUserId(user.id || null);
+
+      if (user.role !== 'admin' && user.role !== 'staff') {
+        alert("Access denied. Admin or Staff only.");
+        navigate("/dashboard");
+      }
+    } catch (error) {
+      console.error("Admin check error:", error);
       navigate("/dashboard");
     }
   };
@@ -112,15 +124,7 @@ export default function AdminDashboard() {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      // Get total users
-      const { count: userCount } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
-
-      // Get total bookings
-      const { data: allBookings } = await supabase
-        .from('bookings')
-        .select('total_price, status');
+      const { userCount, bookings: allBookings } = await api.stats.get();
 
       // Calculate stats
       const totalRevenue = allBookings?.reduce((sum, b) => sum + parseFloat(b.total_price || 0), 0) || 0;
@@ -140,20 +144,14 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchBookings = async (filterDate = null) => {
+  const fetchBookings = async (filterDate) => {
+    const effectiveFilter = filterDate === undefined ? selectedDate : filterDate;
     setLoading(true);
     try {
-      // First, fetch all bookings to populate calendar
-      const { data: allBookings, error: allError } = await supabase
-        .from('bookings')
-        .select('pickup_date')
-        .not('pickup_date', 'is', null);
-      
-      if (allError) throw allError;
-      
-      // Group all bookings by pickup date for calendar
+      const allBookingsSummary = await api.bookings.list();
+
       const grouped = {};
-      (allBookings || []).forEach(booking => {
+      (allBookingsSummary || []).forEach(booking => {
         if (booking.pickup_date) {
           const dateKey = booking.pickup_date;
           if (!grouped[dateKey]) {
@@ -163,26 +161,19 @@ export default function AdminDashboard() {
         }
       });
       setBookingsByDate(grouped);
-      
-      // Now fetch detailed bookings (filtered by date if provided)
-      let query = supabase
-        .from('bookings')
-        .select(`
-          *,
-          profiles:user_id (name, email),
-          services:service_id (name, price, unit)
-        `);
-      
-      if (filterDate) {
-        query = query.eq('pickup_date', filterDate);
-      }
-      
-      const { data, error } = await query
-        .order('pickup_date', { ascending: true })
-        .order('pickup_time', { ascending: true });
 
-      if (error) throw error;
-      setBookings(data || []);
+      let data = allBookingsSummary || [];
+      if (effectiveFilter) {
+        data = data.filter(b => b.pickup_date === effectiveFilter);
+      }
+
+      data.sort((a, b) => {
+        const dateCompare = new Date(a.pickup_date) - new Date(b.pickup_date);
+        if (dateCompare !== 0) return dateCompare;
+        return (a.pickup_time || '').localeCompare(b.pickup_time || '');
+      });
+
+      setBookings(data);
 
       // Group bookings by base order ID
       const groupedMap = {};
@@ -240,32 +231,8 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       // Fetch profiles
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Fetch staff data to get employee_id and permissions
-      const { data: staffData } = await supabase
-        .from('staff')
-        .select('id, employee_id, department, can_confirm_payments, can_manage_bookings, promoted_at');
-
-      // Merge staff data with profiles
-      const usersWithStaffData = (profiles || []).map(profile => {
-        const staffInfo = staffData?.find(s => s.id === profile.id);
-        return {
-          ...profile,
-          employee_id: staffInfo?.employee_id || null,
-          department: staffInfo?.department || null,
-          can_confirm_payments: staffInfo?.can_confirm_payments || false,
-          can_manage_bookings: staffInfo?.can_manage_bookings || false,
-          promoted_at: staffInfo?.promoted_at || null
-        };
-      });
-
-      setUsers(usersWithStaffData);
+      const profiles = await api.profiles.getAll();
+      setUsers(profiles || []);
     } catch (error) {
       console.error("Error fetching users:", error);
       alert("Failed to load users. Please try again.");
@@ -277,12 +244,7 @@ export default function AdminDashboard() {
   const fetchServices = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('services')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await api.services.list();
       setServices(data || []);
     } catch (error) {
       console.error("Error fetching services:", error);
@@ -301,12 +263,7 @@ export default function AdminDashboard() {
         return;
       }
 
-      const { error } = await supabase
-        .from('bookings')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', bookingId);
-
-      if (error) throw error;
+      await api.bookings.update(bookingId, { status: newStatus });
 
       // Prepare notification message based on status
       let statusMessage = '';
@@ -336,8 +293,7 @@ export default function AdminDashboard() {
           statusMessage = `Your booking #${booking.order_id} status has been updated to ${newStatus}.`;
       }
 
-      // Send notification to customer
-      await supabase.from('notifications').insert({
+      await api.notifications.create({
         user_id: booking.user_id,
         title: `Booking ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1).replace('_', ' ')}`,
         message: statusMessage,
@@ -345,11 +301,7 @@ export default function AdminDashboard() {
         related_booking_id: bookingId
       });
 
-      // Send notification to all admins (except current user if admin)
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin');
+      const admins = await api.profiles.byRole(['admin']);
 
       if (admins && admins.length > 0) {
         const adminNotifications = admins
@@ -363,7 +315,7 @@ export default function AdminDashboard() {
           }));
 
         if (adminNotifications.length > 0) {
-          await supabase.from('notifications').insert(adminNotifications);
+          await api.notifications.create(adminNotifications);
         }
       }
       
@@ -377,6 +329,28 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error("Error updating booking:", error);
       if (!silent) alert("Failed to update booking status");
+    }
+  };
+
+  const sendRatingRequest = async (order) => {
+    try {
+      const firstBookingId = order.bookingIds?.[0] || order.services?.[0]?.id;
+      const baseOrderId = order.baseOrderId || order.order_id;
+
+      await api.notifications.create({
+        user_id: order.user_id,
+        title: 'Rate Your Experience',
+        message: `Your order #${baseOrderId} is complete! Tap here to rate your experience in Order History.`,
+        type: 'info',
+        related_booking_id: firstBookingId,
+      });
+
+      await api.messages.send(
+        order.user_id,
+        `Hi! Your order #${baseOrderId} has been completed. We'd love your feedback — please go to Order History and rate your experience (1–5 stars). Thank you for choosing Laundry Connect!`
+      );
+    } catch (error) {
+      console.error('Failed to send rating request:', error);
     }
   };
 
@@ -398,20 +372,13 @@ export default function AdminDashboard() {
       const declinedBy = userProfile?.name || userProfile?.email || 'Staff';
 
       // Update booking status to declined/cancelled
-      const { error } = await supabase
-        .from('bookings')
-        .update({ 
-          status: 'cancelled',
-          payment_status: 'refunded',
-          notes: `Declined by ${declinedBy}. Reason: ${declineReason || 'No reason provided'}`,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', bookingId);
+      await api.bookings.update(bookingId, {
+        status: 'cancelled',
+        payment_status: 'refunded',
+        notes: `Declined by ${declinedBy}. Reason: ${declineReason || 'No reason provided'}`
+      });
 
-      if (error) throw error;
-
-      // Send notification to customer
-      await supabase.from('notifications').insert({
+      await api.notifications.create({
         user_id: booking.user_id,
         title: 'Booking Declined',
         message: `Your booking #${booking.order_id} has been declined.${declineReason ? ` Reason: ${declineReason}` : ''} Please contact us for more information or try booking again.`,
@@ -419,11 +386,7 @@ export default function AdminDashboard() {
         related_booking_id: bookingId
       });
 
-      // Notify all admins about the decline
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin');
+      const admins = await api.profiles.byRole(['admin']);
 
       if (admins && admins.length > 0) {
         const adminNotifications = admins
@@ -437,7 +400,7 @@ export default function AdminDashboard() {
           }));
 
         if (adminNotifications.length > 0) {
-          await supabase.from('notifications').insert(adminNotifications);
+          await api.notifications.create(adminNotifications);
         }
       }
 
@@ -472,20 +435,13 @@ export default function AdminDashboard() {
       const userProfile = JSON.parse(localStorage.getItem('userProfile'));
       const confirmedBy = userProfile?.name || userProfile?.email || 'Staff';
       
-      const { error } = await supabase
-        .from('bookings')
-        .update({ 
-          payment_status: 'paid',
-          payment_id: paymentId,
-          payment_method: `Confirmed by ${confirmedBy}`,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', bookingId);
+      await api.bookings.update(bookingId, {
+        payment_status: 'paid',
+        payment_id: paymentId,
+        payment_method: `Confirmed by ${confirmedBy}`
+      });
 
-      if (error) throw error;
-
-      // Send notification to customer
-      await supabase.from('notifications').insert({
+      await api.notifications.create({
         user_id: booking.user_id,
         title: 'Payment Confirmed!',
         message: `Your payment for order #${booking.order_id} has been confirmed. Amount: ₱${booking.total_price}. Thank you!`,
@@ -493,11 +449,7 @@ export default function AdminDashboard() {
         related_booking_id: bookingId
       });
 
-      // Send notification to all admins (except current user if admin)
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin');
+      const admins = await api.profiles.byRole(['admin']);
 
       if (admins && admins.length > 0) {
         const adminNotifications = admins
@@ -511,7 +463,7 @@ export default function AdminDashboard() {
           }));
 
         if (adminNotifications.length > 0) {
-          await supabase.from('notifications').insert(adminNotifications);
+          await api.notifications.create(adminNotifications);
         }
       }
       
@@ -572,20 +524,15 @@ export default function AdminDashboard() {
         const pricePerUnit = parseFloat(input?.pricePerUnit) || 0;
         const newTotalPrice = actualWeight * pricePerUnit;
 
-        await supabase
-          .from('bookings')
-          .update({
-            quantity: actualWeight,
-            actual_weight: actualWeight,
-            total_price: newTotalPrice,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', service.id);
+        await api.bookings.update(service.id, {
+          quantity: actualWeight,
+          actual_weight: actualWeight,
+          total_price: newTotalPrice
+        });
       }
 
-      // Notify customer
       const totalAmount = calculateWeighedTotal();
-      await supabase.from('notifications').insert({
+      await api.notifications.create({
         user_id: weighingOrder.user_id,
         title: 'Items Weighed - Ready for Payment',
         message: `Your laundry for order ${weighingOrder.baseOrderId} has been weighed. Total amount: ₱${totalAmount.toFixed(2)}. Please proceed with payment.`,
@@ -613,12 +560,7 @@ export default function AdminDashboard() {
     }
     
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userId);
-
-      if (error) throw error;
+      await api.profiles.delete(userId);
       
       alert("User deleted successfully");
       fetchUsers();
@@ -638,65 +580,14 @@ export default function AdminDashboard() {
     }
     
     try {
-      // Generate unique employee ID (e.g., EMP-2024-0001)
-      const year = new Date().getFullYear();
-      const { data: existingStaff } = await supabase
-        .from('staff')
-        .select('employee_id')
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      let nextNumber = 1;
-      if (existingStaff && existingStaff.length > 0 && existingStaff[0].employee_id) {
-        const lastId = existingStaff[0].employee_id;
-        const match = lastId.match(/EMP-\d{4}-(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1], 10) + 1;
-        }
-      }
-      const employeeId = `EMP-${year}-${String(nextNumber).padStart(4, '0')}`;
+      const { employeeId } = await api.staff.promote(targetUserId);
 
-      // 1. Update role in profiles table
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ role: 'staff', updated_at: new Date().toISOString() })
-        .eq('id', targetUserId);
-
-      if (profileError) throw profileError;
-
-      // 2. Remove from customers table (if exists)
-      await supabase
-        .from('customers')
-        .delete()
-        .eq('id', targetUserId);
-
-      // 3. Insert into staff table with employee_id
-      const { error: staffError } = await supabase
-        .from('staff')
-        .upsert({
-          id: targetUserId,
-          employee_id: employeeId,
-          promoted_by: userId, // current admin's ID
-          promoted_at: new Date().toISOString(),
-          can_confirm_payments: true,
-          can_manage_bookings: true,
-          department: 'operations'
-        }, { onConflict: 'id' });
-
-      if (staffError) {
-        console.error("Staff table insert error:", staffError);
-        // Don't throw - the main promotion (profiles update) succeeded
-      }
-
-      // 4. Create notification for the promoted user
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: targetUserId,
-          title: 'You have been promoted to Staff!',
-          message: `Congratulations! Your Employee ID is ${employeeId}. You now have staff privileges to manage bookings and confirm payments.`,
-          type: 'success'
-        });
+      await api.notifications.create({
+        user_id: targetUserId,
+        title: 'You have been promoted to Staff!',
+        message: `Congratulations! Your Employee ID is ${employeeId}. You now have staff privileges to manage bookings and confirm payments.`,
+        type: 'success'
+      });
       
       alert("User promoted to staff successfully!");
       fetchUsers();
@@ -705,6 +596,82 @@ export default function AdminDashboard() {
       alert("Failed to promote user: " + error.message);
     }
   };
+
+  const sendMessageToUser = async () => {
+    if (!messageUser || !messageText.trim()) {
+      alert('Please enter a message');
+      return;
+    }
+
+    setSendingMessage(true);
+    try {
+      await api.messages.send(messageUser.id, messageText.trim());
+
+      alert(`Message sent to ${messageUser.name || messageUser.email}`);
+      setMessageUser(null);
+      setMessageText('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const filteredUsers = users.filter((user) => {
+    if (!userSearchQuery.trim()) return true;
+    const query = userSearchQuery.toLowerCase();
+    return (
+      (user.name || '').toLowerCase().includes(query) ||
+      (user.email || '').toLowerCase().includes(query) ||
+      (user.role || '').toLowerCase().includes(query) ||
+      (user.employee_id || '').toLowerCase().includes(query)
+    );
+  });
+
+  const openMessageModal = async (user, e) => {
+    e?.stopPropagation();
+    if (user.id === userId) {
+      alert('You cannot message yourself.');
+      return;
+    }
+    setMessageUser(user);
+    setMessageText('');
+    setMessageProfileDetails(null);
+
+    if (currentUserRole === 'admin' || currentUserRole === 'staff') {
+      setLoadingProfile(true);
+      try {
+        const details = await api.users.getProfile(user.id);
+        setMessageProfileDetails(details);
+      } catch (error) {
+        console.error('Error loading profile for message:', error);
+      } finally {
+        setLoadingProfile(false);
+      }
+    }
+  };
+
+  const openUserProfile = async (user) => {
+    if (currentUserRole !== 'admin' && currentUserRole !== 'staff') return;
+
+    setProfileViewUser(user);
+    setProfileDetails(null);
+    setLoadingProfile(true);
+    try {
+      const details = await api.users.getProfile(user.id);
+      setProfileDetails(details);
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+      alert('Failed to load user profile.');
+      setProfileViewUser(null);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const canViewUserProfiles = currentUserRole === 'admin' || currentUserRole === 'staff';
+  const isStaffViewOnly = currentUserRole === 'staff';
 
   const demoteToUser = async (targetUserId) => {
     if (!confirm("Demote this staff member to customer?")) return;
@@ -716,40 +683,14 @@ export default function AdminDashboard() {
     }
     
     try {
-      // 1. Update role in profiles table
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ role: 'customer', updated_at: new Date().toISOString() })
-        .eq('id', targetUserId);
+      await api.staff.demote(targetUserId);
 
-      if (profileError) throw profileError;
-
-      // 2. Remove from staff table
-      await supabase
-        .from('staff')
-        .delete()
-        .eq('id', targetUserId);
-
-      // 3. Insert into customers table
-      const { error: customerError } = await supabase
-        .from('customers')
-        .upsert({
-          id: targetUserId
-        }, { onConflict: 'id' });
-
-      if (customerError) {
-        console.error("Customers table insert error:", customerError);
-      }
-
-      // 4. Create notification for the demoted user
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: targetUserId,
-          title: 'Role Changed',
-          message: 'Your account role has been changed to customer.',
-          type: 'info'
-        });
+      await api.notifications.create({
+        user_id: targetUserId,
+        title: 'Role Changed',
+        message: 'Your account role has been changed to customer.',
+        type: 'info'
+      });
       
       alert("Staff demoted to customer successfully!");
       fetchUsers();
@@ -760,20 +701,19 @@ export default function AdminDashboard() {
   };
 
   const toggleServiceStatus = async (serviceId, currentStatus) => {
-    // Only admin can toggle service status
     if (currentUserRole !== 'admin') {
       alert("Only administrators can change service status");
       return;
     }
 
-    try {
-      const { error } = await supabase
-        .from('services')
-        .update({ is_active: !currentStatus })
-        .eq('id', serviceId);
+    const service = services.find((s) => s.id === serviceId);
+    if (!service) {
+      alert("Service not found");
+      return;
+    }
 
-      if (error) throw error;
-      
+    try {
+      await api.services.update(serviceId, { is_active: !currentStatus });
       alert(`Service ${!currentStatus ? 'activated' : 'deactivated'}`);
       fetchServices();
     } catch (error) {
@@ -846,28 +786,8 @@ export default function AdminDashboard() {
   const uploadServiceImage = async (file) => {
     try {
       setUploadingImage(true);
-      
-      // Create unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `service-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `services/${fileName}`;
-
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('service_images')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('service_images')
-        .getPublicUrl(filePath);
-
-      return publicUrl;
+      const { url } = await api.uploads.service(file);
+      return url;
     } catch (error) {
       console.error("Error uploading image:", error);
       throw error;
@@ -903,38 +823,26 @@ export default function AdminDashboard() {
       }
 
       if (editingService) {
-        // Update existing service
-        const { error } = await supabase
-          .from('services')
-          .update({
-            name: serviceForm.name,
-            description: serviceForm.description,
-            price: parseFloat(serviceForm.price),
-            unit: serviceForm.unit,
-            is_active: serviceForm.is_active,
-            is_popular: serviceForm.is_popular,
-            image_url: imageUrl || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingService.id);
-
-        if (error) throw error;
+        await api.services.update(editingService.id, {
+          name: serviceForm.name,
+          description: serviceForm.description,
+          price: parseFloat(serviceForm.price),
+          unit: serviceForm.unit,
+          is_active: serviceForm.is_active,
+          is_popular: serviceForm.is_popular,
+          image_url: imageUrl || null
+        });
         alert("Service updated successfully!");
       } else {
-        // Add new service
-        const { error } = await supabase
-          .from('services')
-          .insert({
-            name: serviceForm.name,
-            description: serviceForm.description,
-            price: parseFloat(serviceForm.price),
-            unit: serviceForm.unit,
-            is_active: serviceForm.is_active,
-            is_popular: serviceForm.is_popular,
-            image_url: imageUrl || null
-          });
-
-        if (error) throw error;
+        await api.services.create({
+          name: serviceForm.name,
+          description: serviceForm.description,
+          price: parseFloat(serviceForm.price),
+          unit: serviceForm.unit,
+          is_active: serviceForm.is_active,
+          is_popular: serviceForm.is_popular,
+          image_url: imageUrl || null
+        });
         alert("Service added successfully!");
       }
 
@@ -958,12 +866,7 @@ export default function AdminDashboard() {
     if (!confirm(`Are you sure you want to delete "${serviceName}"? This action cannot be undone.`)) return;
 
     try {
-      const { error } = await supabase
-        .from('services')
-        .delete()
-        .eq('id', serviceId);
-
-      if (error) throw error;
+      await api.services.delete(serviceId);
       
       alert("Service deleted successfully!");
       fetchServices();
@@ -1117,57 +1020,79 @@ export default function AdminDashboard() {
     </div>
   );
 
+  const orderActionBtn = "px-2 py-1 h-8 !min-h-8 !min-w-0 rounded-md text-xs font-medium inline-flex items-center justify-center gap-1 transition cursor-pointer touch-manipulation";
+  const orderActionIcon = "w-3.5 h-3.5 shrink-0";
+
   return (
-    <div className="min-h-screen bg-blue-50 flex flex-col relative">
+    <div className="min-h-screen bg-blue-50 flex flex-col overflow-x-hidden">
       {/* Header */}
-      <div className="bg-white shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-          <button onClick={() => navigate("/dashboard")} className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition cursor-pointer touch-manipulation flex-shrink-0">
-            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
-          </button>
-          <h1 className="text-base sm:text-xl md:text-2xl font-bold text-blue-500 truncate">
-            <span className="hidden sm:inline">
-              {currentUserRole === 'admin' ? 'Admin Dashboard' : 'Staff Dashboard'}
-            </span>
-            <span className="sm:hidden">
-              {currentUserRole === 'admin' ? 'Admin' : 'Staff'}
-            </span>
-          </h1>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          {userId && <Notifications userId={userId} />}
-          {currentUserRole === 'staff' && (
-            <span className="hidden sm:inline px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-              Staff Mode
-            </span>
-          )}
+      <div className="bg-white shadow-sm sticky top-0 z-30 safe-area-top border-b border-gray-100">
+        <div className="page-container py-3 sm:py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <button onClick={() => navigate("/dashboard")} className="p-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition cursor-pointer touch-manipulation flex-shrink-0">
+              <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl md:text-2xl font-bold text-blue-500 truncate">
+                {currentUserRole === 'admin' ? 'Admin Dashboard' : 'Staff Dashboard'}
+              </h1>
+              <p className="text-[10px] sm:text-xs text-gray-500 truncate hidden sm:block">
+                Manage bookings, users, and services
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <button
+              onClick={() => navigate("/messages")}
+              className="relative p-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition touch-manipulation"
+              aria-label="Messages"
+              title="Messages"
+            >
+              <MessageSquare className="w-5 h-5 text-blue-600" />
+            </button>
+            {userId && <Notifications userId={userId} />}
+            {currentUserRole === 'staff' && (
+              <span className="hidden md:inline px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium whitespace-nowrap">
+                Staff Mode
+              </span>
+            )}
+            {currentUserRole === 'admin' && (
+              <span className="hidden md:inline px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium whitespace-nowrap">
+                Admin
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white shadow-sm px-4 py-3 flex gap-2 overflow-x-auto">
+      <div className="bg-white border-b border-gray-100 sticky top-[52px] sm:top-[60px] md:top-[68px] z-20">
+        <div className="page-container py-2 sm:py-3">
+          <div className="admin-tab-grid">
         {[
           { id: "overview", label: "Overview", roles: ['admin', 'staff'] },
           { id: "bookings", label: "Bookings", roles: ['admin', 'staff'] },
-          { id: "users", label: "Users", roles: ['admin'] },
+          { id: "users", label: "Users", roles: ['admin', 'staff'] },
           { id: "services", label: "Services", roles: ['admin', 'staff'] }
         ].filter(tab => tab.roles.includes(currentUserRole)).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-full font-medium text-sm transition whitespace-nowrap cursor-pointer ${
+            className={`px-3 sm:px-4 py-2.5 sm:py-2 rounded-xl sm:rounded-full font-medium text-sm transition whitespace-nowrap cursor-pointer touch-manipulation text-center ${
               activeTab === tab.id
-                ? "bg-blue-500 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                ? "bg-blue-500 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300"
             }`}
           >
             {tab.label}
           </button>
         ))}
+          </div>
+        </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 px-3 sm:px-4 md:px-6 py-4 sm:py-6 max-w-7xl mx-auto w-full">
+      <div className="flex-1 page-container py-4 sm:py-6 pb-8 safe-area-bottom w-full">
         {loading ? (
           <div className="flex justify-center items-center h-64">
             <div className="text-blue-500 text-lg">Loading...</div>
@@ -1370,15 +1295,9 @@ export default function AdminDashboard() {
                                           if (!confirm(`Remove "${service.name}" (₱${service.price.toFixed(2)}) from this order?`)) return;
                                           try {
                                             // Delete the individual booking
-                                            const { error } = await supabase
-                                              .from('bookings')
-                                              .delete()
-                                              .eq('id', service.id);
-                                            
-                                            if (error) throw error;
-                                            
-                                            // Notify customer
-                                            await supabase.from('notifications').insert({
+                                            await api.bookings.delete(service.id);
+
+                                            await api.notifications.create({
                                               user_id: order.user_id,
                                               title: 'Service Removed from Order',
                                               message: `"${service.name}" has been removed from your order ${order.baseOrderId}. Refund/adjustment will be processed.`,
@@ -1392,7 +1311,7 @@ export default function AdminDashboard() {
                                             alert("Failed to remove service. Please try again.");
                                           }
                                         }}
-                                        className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-100 rounded transition"
+                                        className="p-1.5 text-red-500 hover:bg-red-100 rounded transition sm:opacity-0 sm:group-hover:opacity-100 touch-manipulation"
                                         title={`Remove ${service.name}`}
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -1410,7 +1329,7 @@ export default function AdminDashboard() {
                             <p className="text-sm sm:text-base font-bold text-blue-600 mt-1">Total: ₱{order.totalPrice.toFixed(2)}</p>
                           </div>
                           
-                          <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5 pt-2 border-t border-gray-100">
                             <button
                               onClick={() => setSelectedBooking({
                                 ...order,
@@ -1421,19 +1340,20 @@ export default function AdminDashboard() {
                                 bookingIds: order.bookingIds,
                                 user_id: order.user_id
                               })}
-                              className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                              className={`${orderActionBtn} bg-blue-100 text-blue-600 hover:bg-blue-200`}
                               title="View Details"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Eye className={orderActionIcon} />
+                              <span className="sm:hidden">View</span>
                             </button>
                             {/* Weigh Items Button */}
                             {(currentUserRole === 'staff' || currentUserRole === 'admin') && order.status !== 'cancelled' && order.status !== 'completed' && (
                               <button
                                 onClick={() => openWeighModal(order)}
-                                className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
+                                className={`${orderActionBtn} bg-amber-500 text-white hover:bg-amber-600`}
                                 title="Weigh Items"
                               >
-                                <Scale className="w-4 h-4" />
+                                <Scale className={orderActionIcon} />
                                 <span>Weigh</span>
                               </button>
                             )}
@@ -1448,10 +1368,10 @@ export default function AdminDashboard() {
                                   alert("All payments confirmed successfully!");
                                   fetchBookings();
                                 }}
-                                className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition cursor-pointer flex items-center gap-1 text-sm font-medium"
+                                className={`${orderActionBtn} bg-green-500 text-white hover:bg-green-600`}
                                 title="Confirm All Payments"
                               >
-                                <CreditCard className="w-4 h-4" />
+                                <CreditCard className={orderActionIcon} />
                                 <span>Pay All</span>
                               </button>
                             )}
@@ -1466,10 +1386,11 @@ export default function AdminDashboard() {
                                   alert("All bookings confirmed!");
                                   fetchBookings();
                                 }}
-                                className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
+                                className={`${orderActionBtn} bg-green-100 text-green-600 hover:bg-green-200`}
                                 title="Confirm All"
                               >
-                                <CheckCircle className="w-4 h-4" />
+                                <CheckCircle className={orderActionIcon} />
+                                <span className="sm:hidden">Confirm</span>
                               </button>
                             )}
                             {/* Start Processing All */}
@@ -1482,10 +1403,11 @@ export default function AdminDashboard() {
                                   alert("Order is now in progress!");
                                   fetchBookings();
                                 }}
-                                className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition cursor-pointer"
+                                className={`${orderActionBtn} bg-purple-100 text-purple-600 hover:bg-purple-200`}
                                 title="Start Processing All"
                               >
-                                <Clock className="w-4 h-4" />
+                                <Clock className={orderActionIcon} />
+                                <span className="sm:hidden">Start</span>
                               </button>
                             )}
                             {/* Complete All */}
@@ -1493,15 +1415,17 @@ export default function AdminDashboard() {
                               <button
                                 onClick={async () => {
                                   for (const bookingId of order.bookingIds) {
-                                    await updateBookingStatus(bookingId, 'completed', true); // silent mode
+                                    await updateBookingStatus(bookingId, 'completed', true);
                                   }
+                                  await sendRatingRequest(order);
                                   alert("Order completed successfully!");
                                   fetchBookings();
                                 }}
-                                className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                                className={`${orderActionBtn} bg-blue-100 text-blue-600 hover:bg-blue-200`}
                                 title="Complete All"
                               >
-                                <CheckCircle className="w-4 h-4" />
+                                <CheckCircle className={orderActionIcon} />
+                                <span className="sm:hidden">Done</span>
                               </button>
                             )}
                             {/* Decline All */}
@@ -1516,10 +1440,11 @@ export default function AdminDashboard() {
                                   alert("All bookings declined. Customer has been notified.");
                                   fetchBookings();
                                 }}
-                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
+                                className={`${orderActionBtn} bg-red-100 text-red-600 hover:bg-red-200`}
                                 title="Decline All"
                               >
-                                <XCircle className="w-4 h-4" />
+                                <XCircle className={orderActionIcon} />
+                                <span className="sm:hidden">Decline</span>
                               </button>
                             )}
                           </div>
@@ -1535,20 +1460,55 @@ export default function AdminDashboard() {
             {activeTab === "users" && (
               <div className="space-y-4">
                 {currentUserRole === 'admin' && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-blue-800">
-                      <strong>Admin Actions:</strong> You can promote users to staff or demote staff to users. 
-                      Only admins can delete users.
+                      <strong>Admin Actions:</strong> Click a user to view profile. Search, message, promote to staff, or delete users.
                     </p>
                   </div>
                 )}
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    placeholder="Search by name, email, or role..."
+                    className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
                 {users.length === 0 ? (
-                  <p className="text-center text-gray-500">No users yet</p>
+                  <p className="text-center text-gray-500 py-8">No users yet</p>
+                ) : filteredUsers.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No users match your search</p>
                 ) : (
-                  users.map(user => (
-                    <div key={user.id} className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow hover:shadow-md transition">
+                  filteredUsers.map(user => (
+                    <div
+                      key={user.id}
+                      role={canViewUserProfiles ? 'button' : undefined}
+                      tabIndex={canViewUserProfiles ? 0 : undefined}
+                      onClick={() => openUserProfile(user)}
+                      onKeyDown={(e) => {
+                        if (canViewUserProfiles && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          openUserProfile(user);
+                        }
+                      }}
+                      className={`bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow hover:shadow-md transition ${
+                        canViewUserProfiles ? 'cursor-pointer hover:ring-2 hover:ring-blue-100' : ''
+                      }`}
+                    >
                       <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:justify-between">
-                        <div className="flex-1 min-w-0">
+                        <div className="flex gap-3 flex-1 min-w-0">
+                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0 overflow-hidden border border-blue-50">
+                            {user.profile_image ? (
+                              <img src={user.profile_image} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-semibold text-gray-800 text-sm sm:text-base">{user.name || "No name"}</p>
                             {user.role === 'staff' && user.employee_id && (
@@ -1592,12 +1552,25 @@ export default function AdminDashboard() {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 self-end sm:self-center">
+                        </div>
+                        <div
+                          className="flex flex-wrap items-center gap-2 self-stretch sm:self-center justify-end sm:justify-start w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100 sm:border-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {user.id !== userId && (
+                            <button
+                              onClick={(e) => openMessageModal(user, e)}
+                              className="p-1.5 sm:p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition cursor-pointer touch-manipulation"
+                              title="Message User"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                          )}
                           {currentUserRole === 'admin' && (
                             <>
                               {(user.role === 'user' || user.role === 'customer') && (
                                 <button
-                                  onClick={() => promoteToStaff(user.id)}
+                                  onClick={(e) => { e.stopPropagation(); promoteToStaff(user.id); }}
                                   className="p-1.5 sm:p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition cursor-pointer"
                                   title="Promote to Staff"
                                 >
@@ -1606,7 +1579,7 @@ export default function AdminDashboard() {
                               )}
                               {user.role === 'staff' && (
                                 <button
-                                  onClick={() => demoteToUser(user.id)}
+                                  onClick={(e) => { e.stopPropagation(); demoteToUser(user.id); }}
                                   className="p-1.5 sm:p-2 bg-yellow-100 text-yellow-600 rounded-lg hover:bg-yellow-200 transition cursor-pointer"
                                   title="Demote to Customer"
                                 >
@@ -1614,7 +1587,7 @@ export default function AdminDashboard() {
                                 </button>
                               )}
                               <button
-                                onClick={() => deleteUser(user.id)}
+                                onClick={(e) => { e.stopPropagation(); deleteUser(user.id); }}
                                 className="p-1.5 sm:p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition cursor-pointer"
                                 title="Delete User"
                               >
@@ -1738,23 +1711,23 @@ export default function AdminDashboard() {
 
       {/* Booking Details Modal */}
       {selectedBooking && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg max-h-[90vh] overflow-y-auto">
-            <button onClick={() => setSelectedBooking(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
-            <h2 className="text-xl font-bold text-blue-500 mb-4">Booking Details</h2>
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel sm:max-w-md p-4 sm:p-6 relative animate-slideUp">
+            <button onClick={() => setSelectedBooking(null)} className="absolute top-3 right-3 p-2 text-gray-500 hover:text-black hover:bg-gray-100 rounded-lg font-bold cursor-pointer touch-manipulation">✕</button>
+            <h2 className="text-lg sm:text-xl font-bold text-blue-500 mb-4 pr-8">Booking Details</h2>
             
             <div className="space-y-3">
-              <div className="flex justify-between">
-                <p className="text-gray-500">Order ID:</p>
-                <p className="font-semibold text-sm">{selectedBooking?.order_id || selectedBooking?.baseOrderId || "N/A"}</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Order ID:</p>
+                <p className="font-semibold text-sm break-all text-right sm:text-left">{selectedBooking?.order_id || selectedBooking?.baseOrderId || "N/A"}</p>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Customer:</p>
-                <p className="font-semibold">{selectedBooking?.profiles?.name || selectedBooking?.customerName || selectedBooking?.profiles?.email || "N/A"}</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Customer:</p>
+                <p className="font-semibold text-sm">{selectedBooking?.profiles?.name || selectedBooking?.customerName || selectedBooking?.profiles?.email || "N/A"}</p>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Email:</p>
-                <p className="font-semibold text-sm">{selectedBooking?.profiles?.email || selectedBooking?.customerEmail || "N/A"}</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Email:</p>
+                <p className="font-semibold text-sm break-all">{selectedBooking?.profiles?.email || selectedBooking?.customerEmail || "N/A"}</p>
               </div>
               
               {/* Services List */}
@@ -1785,28 +1758,28 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="flex justify-between">
-                <p className="text-gray-500">Pickup Date:</p>
-                <p className="font-semibold">{selectedBooking?.pickup_date ? formatDate(selectedBooking.pickup_date) : selectedBooking?.pickupDate ? formatDate(selectedBooking.pickupDate) : "N/A"}</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Pickup Date:</p>
+                <p className="font-semibold text-sm">{selectedBooking?.pickup_date ? formatDate(selectedBooking.pickup_date) : selectedBooking?.pickupDate ? formatDate(selectedBooking.pickupDate) : "N/A"}</p>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Pickup Time:</p>
-                <p className="font-semibold">{selectedBooking?.pickup_time ? formatTime(selectedBooking.pickup_time) : selectedBooking?.pickupTime ? formatTime(selectedBooking.pickupTime) : "N/A"}</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Pickup Time:</p>
+                <p className="font-semibold text-sm">{selectedBooking?.pickup_time ? formatTime(selectedBooking.pickup_time) : selectedBooking?.pickupTime ? formatTime(selectedBooking.pickupTime) : "N/A"}</p>
               </div>
               {selectedBooking?.payment_method && (
-                <div className="flex justify-between">
-                  <p className="text-gray-500">Payment Method:</p>
-                  <p className="font-semibold">{selectedBooking.payment_method}</p>
+                <div className="detail-row">
+                  <p className="text-gray-500 text-sm">Payment Method:</p>
+                  <p className="font-semibold text-sm">{selectedBooking.payment_method}</p>
                 </div>
               )}
               {selectedBooking?.payment_id && (
-                <div className="flex justify-between">
-                  <p className="text-gray-500">Payment ID:</p>
-                  <p className="font-semibold">{selectedBooking.payment_id}</p>
+                <div className="detail-row">
+                  <p className="text-gray-500 text-sm">Payment ID:</p>
+                  <p className="font-semibold text-sm break-all">{selectedBooking.payment_id}</p>
                 </div>
               )}
-              <div className="flex justify-between">
-                <p className="text-gray-500">Payment Status:</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Payment Status:</p>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                   selectedBooking?.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
                   selectedBooking?.payment_status === 'unpaid' ? 'bg-yellow-100 text-yellow-700' :
@@ -1815,15 +1788,15 @@ export default function AdminDashboard() {
                   {selectedBooking?.payment_status || "unpaid"}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <p className="text-gray-500">Status:</p>
+              <div className="detail-row">
+                <p className="text-gray-500 text-sm">Status:</p>
                 {getStatusBadge(selectedBooking?.status)}
               </div>
-              <div className="flex justify-between border-t pt-3">
-                <p className="text-gray-500 font-medium">Total:</p>
+              <div className="detail-row border-t pt-3">
+                <p className="text-gray-500 font-medium text-sm">Total:</p>
                 <p className="font-semibold text-lg text-blue-600">₱{parseFloat(selectedBooking?.total_price || selectedBooking?.totalPrice || 0).toFixed(2)}</p>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2 justify-end">
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap gap-2 justify-stretch sm:justify-end">
                 {selectedBooking?.payment_status === 'unpaid' && selectedBooking?.status !== 'cancelled' && (
                   <button
                     onClick={async () => {
@@ -1840,7 +1813,7 @@ export default function AdminDashboard() {
                       }
                       setSelectedBooking(null);
                     }}
-                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center justify-center gap-2 touch-manipulation"
                   >
                     <CreditCard className="w-4 h-4" />
                     Confirm Payment
@@ -1864,7 +1837,7 @@ export default function AdminDashboard() {
                         setSelectedBooking(null);
                       }
                     }}
-                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-2"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center justify-center gap-2 touch-manipulation"
                   >
                     <XCircle className="w-4 h-4" />
                     Decline
@@ -1883,7 +1856,7 @@ export default function AdminDashboard() {
                         setSelectedBooking(null);
                       }
                     }}
-                    className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-2"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center justify-center gap-2 touch-manipulation"
                   >
                     <Scale className="w-4 h-4" />
                     Weigh
@@ -1891,7 +1864,7 @@ export default function AdminDashboard() {
                 )}
                 <button
                   onClick={() => selectedBooking && downloadReceipt(selectedBooking)}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition touch-manipulation text-center"
                 >
                   Download Receipt
                 </button>
@@ -1903,8 +1876,8 @@ export default function AdminDashboard() {
 
       {/* Weigh Items Modal */}
       {showWeighModal && weighingOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-lg w-full relative shadow-lg max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel sm:max-w-lg p-4 sm:p-6 relative animate-slideUp">
             <button 
               onClick={() => {
                 setShowWeighModal(false);
@@ -2016,8 +1989,8 @@ export default function AdminDashboard() {
 
       {/* Service Add/Edit Modal */}
       {showServiceModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel sm:max-w-md p-4 sm:p-6 relative animate-slideUp">
             <button 
               onClick={() => setShowServiceModal(false)} 
               className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer"
@@ -2166,6 +2139,141 @@ export default function AdminDashboard() {
                   {editingService ? 'Update Service' : 'Add Service'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Profile Modal (Admin & Staff) */}
+      {profileViewUser && canViewUserProfiles && (
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel w-full sm:max-w-md md:max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 animate-slideUp">
+            <UserProfilePanel
+              profile={profileDetails}
+              loading={loadingProfile}
+              viewOnly={isStaffViewOnly}
+              onClose={() => {
+                setProfileViewUser(null);
+                setProfileDetails(null);
+              }}
+            />
+            <div className="p-4 border-t border-gray-100 flex flex-col sm:flex-row gap-2 shrink-0">
+              {profileViewUser.id !== userId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const user = profileViewUser;
+                    setProfileViewUser(null);
+                    setProfileDetails(null);
+                    openMessageModal(user);
+                  }}
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Message
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileViewUser(null);
+                  setProfileDetails(null);
+                }}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Message User Modal */}
+      {messageUser && (
+        <div className="modal-overlay animate-fadeIn">
+          <div className="modal-panel w-full sm:max-w-lg md:max-w-3xl max-h-[92vh] overflow-hidden flex flex-col md:flex-row p-0 animate-slideUp">
+            {canViewUserProfiles && (
+              <div className="md:w-72 lg:w-80 border-b md:border-b-0 md:border-r border-gray-100 max-h-[40vh] md:max-h-none overflow-y-auto shrink-0">
+                <UserProfilePanel
+                  profile={messageProfileDetails}
+                  loading={loadingProfile}
+                  viewOnly={isStaffViewOnly}
+                  compact
+                />
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col min-w-0 p-4 sm:p-6 relative">
+            <button
+              onClick={() => {
+                setMessageUser(null);
+                setMessageText('');
+                setMessageProfileDetails(null);
+              }}
+              className="absolute top-3 right-3 p-2 text-gray-500 hover:text-black hover:bg-gray-100 rounded-lg touch-manipulation z-10"
+            >
+              ✕
+            </button>
+
+            <div className="flex items-center gap-3 mb-4 pr-8">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                {messageProfileDetails?.profile_image ? (
+                  <img src={messageProfileDetails.profile_image} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <MessageSquare className="w-5 h-5 text-blue-600" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-gray-900">Message User</h2>
+                <p className="text-sm text-gray-500 truncate">
+                  To: {messageUser.name || 'User'} ({messageUser.email})
+                </p>
+              </div>
+            </div>
+
+            <textarea
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder="Type your message here..."
+              rows={5}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none flex-1 min-h-[120px]"
+              disabled={sendingMessage}
+            />
+
+            <p className="text-xs text-gray-500 mt-2">
+              Message is saved in chat only. The user will see it in the Messages icon.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 mt-4">
+              <button
+                onClick={() => {
+                  setMessageUser(null);
+                  setMessageText('');
+                  setMessageProfileDetails(null);
+                }}
+                disabled={sendingMessage}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition touch-manipulation"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendMessageToUser}
+                disabled={sendingMessage || !messageText.trim()}
+                className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation"
+              >
+                {sendingMessage ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Message
+                  </>
+                )}
+              </button>
+            </div>
             </div>
           </div>
         </div>

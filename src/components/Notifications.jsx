@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Bell, X, Check, CheckCheck } from "lucide-react";
+import { Bell, X, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
 
 export default function Notifications({ userId, variant = 'light' }) {
   const navigate = useNavigate();
@@ -13,7 +13,6 @@ export default function Notifications({ userId, variant = 'light' }) {
   useEffect(() => {
     if (userId) {
       fetchNotifications();
-      // Poll for new notifications every 30 seconds
       const interval = setInterval(fetchNotifications, 30000);
       return () => clearInterval(interval);
     }
@@ -21,17 +20,9 @@ export default function Notifications({ userId, variant = 'light' }) {
 
   const fetchNotifications = async () => {
     if (!userId) return;
-    
+
     try {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
-
+      const data = await api.notifications.list();
       setNotifications(data || []);
       const unread = (data || []).filter(n => !n.is_read).length;
       setUnreadCount(unread);
@@ -42,12 +33,7 @@ export default function Notifications({ userId, variant = 'light' }) {
 
   const markAsRead = async (notificationId) => {
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', notificationId);
-
-      if (error) throw error;
+      await api.notifications.markRead(notificationId);
       fetchNotifications();
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -56,16 +42,10 @@ export default function Notifications({ userId, variant = 'light' }) {
 
   const markAllAsRead = async () => {
     if (!userId) return;
-    
+
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('user_id', userId)
-        .eq('is_read', false);
-
-      if (error) throw error;
+      await api.notifications.markAllRead();
       fetchNotifications();
     } catch (error) {
       console.error("Error marking all as read:", error);
@@ -76,25 +56,11 @@ export default function Notifications({ userId, variant = 'light' }) {
 
   const deleteNotification = async (notificationId) => {
     try {
-      // Confirm deletion
-      if (!window.confirm('Are you sure you want to delete this notification?')) {
-        return;
-      }
-
-      const { error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', notificationId);
-
-      if (error) {
-        console.error("Delete error:", error);
-        alert('Failed to delete notification. Please try again.');
-        throw error;
-      }
-      
+      await api.notifications.delete(notificationId);
       fetchNotifications();
     } catch (error) {
       console.error("Error deleting notification:", error);
+      alert('Failed to delete notification. Please try again.');
     }
   };
 
@@ -112,19 +78,18 @@ export default function Notifications({ userId, variant = 'light' }) {
 
   return (
     <div className="relative">
-      {/* Notification Bell Icon */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`relative p-1.5 sm:p-2 rounded-lg transition touch-manipulation ${
-          variant === 'dark' 
-            ? 'hover:bg-white/20 active:bg-white/30' 
+          variant === 'dark'
+            ? 'hover:bg-white/20 active:bg-white/30'
             : 'hover:bg-gray-100 active:bg-gray-200'
         }`}
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
       >
         <Bell className={`w-5 h-5 sm:w-6 sm:h-6 ${
-          variant === 'dark' 
-            ? 'text-white' 
+          variant === 'dark'
+            ? 'text-white'
             : 'text-gray-700'
         }`} />
         {unreadCount > 0 && (
@@ -134,15 +99,13 @@ export default function Notifications({ userId, variant = 'light' }) {
         )}
       </button>
 
-      {/* Notification Dropdown */}
       {isOpen && (
         <>
-          <div 
-            className="fixed inset-0 z-40 bg-black/20 sm:bg-transparent" 
+          <div
+            className="fixed inset-0 z-40 bg-black/20 sm:bg-transparent"
             onClick={() => setIsOpen(false)}
           />
           <div className="fixed sm:absolute right-0 left-0 sm:left-auto top-16 sm:top-auto bottom-auto sm:bottom-auto sm:mt-2 sm:mr-0 w-full sm:w-80 sm:max-w-[320px] bg-white rounded-b-2xl sm:rounded-lg shadow-xl border border-gray-200 z-50 max-h-[85vh] sm:max-h-96 overflow-hidden flex flex-col">
-            {/* Header */}
             <div className="flex items-center justify-between p-3 sm:p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
               <h3 className="font-semibold text-gray-800 text-base sm:text-lg">Notifications</h3>
               <div className="flex items-center gap-2 sm:gap-3">
@@ -166,7 +129,6 @@ export default function Notifications({ userId, variant = 'light' }) {
               </div>
             </div>
 
-            {/* Notifications List */}
             <div className="overflow-y-auto flex-1 overscroll-contain">
               {notifications.length === 0 ? (
                 <div className="p-8 sm:p-12 text-center text-gray-500">
@@ -184,28 +146,25 @@ export default function Notifications({ userId, variant = 'light' }) {
                       if (!notification.is_read) {
                         markAsRead(notification.id);
                       }
-                      
-                      // Navigate to bookings tab if it's a "New Booking Received!" notification
+
                       if (notification.title === 'New Booking Received!' || notification.title === 'New Booking Received') {
-                        // Check if user is admin or staff
                         const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
                         if (userProfile?.role === 'admin' || userProfile?.role === 'staff') {
-                          // Set active tab to bookings
                           sessionStorage.setItem('openTab', 'bookings');
-                          // Navigate to admin dashboard
                           navigate('/admindashboard');
-                          // Close notification panel
                           setIsOpen(false);
                         }
+                      } else if (notification.title === 'Rate Your Experience') {
+                        sessionStorage.setItem('rateOrderId', notification.message.match(/#([A-Z0-9-]+)/)?.[1] || '');
+                        navigate('/history');
+                        setIsOpen(false);
                       } else if (notification.related_booking_id) {
-                        // For other booking-related notifications, navigate based on user role
                         const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
                         if (userProfile?.role === 'admin' || userProfile?.role === 'staff') {
                           sessionStorage.setItem('openTab', 'bookings');
                           navigate('/admindashboard');
                           setIsOpen(false);
                         } else {
-                          // For customers, go to history
                           navigate('/history');
                           setIsOpen(false);
                         }
@@ -227,28 +186,21 @@ export default function Notifications({ userId, variant = 'light' }) {
                         </h4>
                         <div className="text-xs sm:text-sm text-gray-600 leading-relaxed">
                           {(() => {
-                            // Format message better - extract order ID and total if present
                             let message = notification.message;
-                            
-                            // Extract order ID
                             const orderMatch = message.match(/Order:\s*([A-Z0-9-]+)/i);
                             const orderId = orderMatch ? orderMatch[1] : null;
-                            
-                            // Extract total price
                             const totalMatch = message.match(/Total:\s*₱?([\d,]+\.?\d*)/i);
                             const total = totalMatch ? totalMatch[1] : null;
-                            
-                            // Clean up message - remove order ID and total from main message
+
                             if (orderId) {
                               message = message.replace(/\(Order:\s*[A-Z0-9-]+\)/gi, '').trim();
                             }
                             if (total) {
                               message = message.replace(/Total:\s*₱?[\d,]+\.?\d*/gi, '').trim();
                             }
-                            
-                            // Clean up extra spaces and punctuation
+
                             message = message.replace(/\s+/g, ' ').replace(/\.\s*\./g, '.').trim();
-                            
+
                             return (
                               <>
                                 <p className="mb-2">{message}</p>
@@ -311,4 +263,3 @@ export default function Notifications({ userId, variant = 'light' }) {
     </div>
   );
 }
-

@@ -1,33 +1,21 @@
 // src/context/authcontext.jsx
-import supabase, { resolveClient } from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
 
-// Get current logged in user
-export const getCurrentUser = async (client) => {
-  const sb = resolveClient(client || supabase);
-  const { data: { user } } = await sb.auth.getUser();
+export const getCurrentUser = async () => {
+  const { data: { user } } = await api.auth.getUser();
   return user;
 };
 
-// Get user profile with role
-export const getUserProfile = async (userId, client) => {
-  const sb = resolveClient(client || supabase);
-  const { data, error } = await sb
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-  
-  if (error) throw error;
+export const getUserProfile = async (userId) => {
+  const data = await api.profiles.get(userId);
   return data;
 };
 
-// Check if user is admin
-export const isAdmin = async (client) => {
+export const isAdmin = async () => {
   try {
-    const user = await getCurrentUser(client);
+    const user = await getCurrentUser();
     if (!user) return false;
-    
-    const profile = await getUserProfile(user.id, client);
+    const profile = await getUserProfile(user.id);
     return profile?.role === 'admin';
   } catch (error) {
     console.error("Error checking admin status:", error);
@@ -35,13 +23,11 @@ export const isAdmin = async (client) => {
   }
 };
 
-// Check if user is staff (admin or staff)
-export const isStaff = async (client) => {
+export const isStaff = async () => {
   try {
-    const user = await getCurrentUser(client);
+    const user = await getCurrentUser();
     if (!user) return false;
-    
-    const profile = await getUserProfile(user.id, client);
+    const profile = await getUserProfile(user.id);
     return profile?.role === 'admin' || profile?.role === 'staff';
   } catch (error) {
     console.error("Error checking staff status:", error);
@@ -49,13 +35,11 @@ export const isStaff = async (client) => {
   }
 };
 
-// Get user role
-export const getUserRole = async (client) => {
+export const getUserRole = async () => {
   try {
-    const user = await getCurrentUser(client);
+    const user = await getCurrentUser();
     if (!user) return 'user';
-    
-    const profile = await getUserProfile(user.id, client);
+    const profile = await getUserProfile(user.id);
     return profile?.role || 'user';
   } catch (error) {
     console.error("Error getting user role:", error);
@@ -63,11 +47,9 @@ export const getUserRole = async (client) => {
   }
 };
 
-// Logout user
-export const logout = async (client) => {
-  const sb = resolveClient(client || supabase);
+export const logout = async () => {
   try {
-    await sb.auth.signOut();
+    await api.auth.signOut();
     localStorage.removeItem('userProfile');
     return true;
   } catch (error) {
@@ -76,13 +58,11 @@ export const logout = async (client) => {
   }
 };
 
-// Check if user is authenticated
-export const isAuthenticated = async (client) => {
-  const user = await getCurrentUser(client);
+export const isAuthenticated = async () => {
+  const user = await getCurrentUser();
   return user !== null;
 };
 
-// Get user from localStorage (for quick access without API call)
 export const getStoredUser = () => {
   const userProfile = localStorage.getItem('userProfile');
   return userProfile ? JSON.parse(userProfile) : null;

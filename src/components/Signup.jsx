@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ChevronLeft, Mail, Lock, User, UserPlus, Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
 import logo from "../assets/logo.png";
 
 export default function Signup() {
@@ -39,51 +39,14 @@ export default function Signup() {
 
     setLoading(true);
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      const { error: signUpError } = await api.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: { data: { name: formData.name } },
       });
       if (signUpError) throw signUpError;
 
-      // Wait a moment for the trigger to create the profile
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Check if profile exists, if not create it manually
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single();
-
-      if (profileError && profileError.code === 'PGRST116') {
-        // Profile doesn't exist, create it
-        const { error: createError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            email: formData.email,
-            name: formData.name,
-            role: 'customer'
-          });
-
-        if (createError) throw createError;
-      }
-
-      // Create customer record with name and email
-      await supabase
-        .from('customers')
-        .upsert({
-          id: data.user.id,
-          name: formData.name,
-          email: formData.email,
-          total_bookings: 0
-        }, { onConflict: 'id' });
-
-      // Sign out the user to ensure they need to log in
-      await supabase.auth.signOut();
-      
-      // Clear any localStorage data
+      await api.auth.signOut();
       localStorage.removeItem('userProfile');
 
       alert("Account created successfully! Please log in to continue.");
@@ -97,8 +60,8 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-8 border border-gray-200">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-6 sm:py-8">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-sm p-6 sm:p-8 border border-gray-200">
         <button
           onClick={() => navigate("/")}
           className="mb-6 p-2 hover:bg-gray-100 rounded-lg transition"

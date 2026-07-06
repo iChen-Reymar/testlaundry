@@ -7,11 +7,14 @@ import Dashboard from "./components/Dashboard";
 import Profile from "./components/Profile";
 import History from "./components/History";
 import AdminDashboard from "./components/AdminDashboard";
+import Messages from "./components/Messages";
 import Receipt from "./components/Receipt";
 import ProtectedRoute from "./components/ProtectedRoute";
+import SupabaseConfigGuard from "./components/SupabaseConfigGuard";
 
 export default function App() {
   return (
+    <SupabaseConfigGuard>
     <Router>
       <Routes>
         {/* Public Screens */}
@@ -45,6 +48,14 @@ export default function App() {
           } 
         />
         <Route 
+          path="/messages" 
+          element={
+            <ProtectedRoute>
+              <Messages />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
           path="/receipt" 
           element={
             <ProtectedRoute>
@@ -67,5 +78,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+    </SupabaseConfigGuard>
   );
 }

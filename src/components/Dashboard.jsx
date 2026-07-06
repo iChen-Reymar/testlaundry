@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Sparkles, TrendingUp, Clock, Award, Zap, Calendar } from "lucide-react";
+import { ChevronLeft, Sparkles, TrendingUp, Clock, Award, Zap, MessageSquare } from "lucide-react";
 import { FaStar } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import supabase from "../lib/supabaseClient.js";
+import api from "../lib/apiClient.js";
 import Notifications from "./Notifications";
 import popular1 from "../assets/popular1.png";
 import popular2 from "../assets/popular2.png";
@@ -30,7 +30,7 @@ export default function Dashboard() {
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(null);
   const [showReceiptModal, setShowReceiptModal] = useState(null);
   const [services, setServices] = useState([]);
-  const [popularServices, setPopularServices] = useState([]);
+  const [mostBookedServices, setMostBookedServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState(null);
   const [userRole, setUserRole] = useState('user');
@@ -42,6 +42,12 @@ export default function Dashboard() {
   const [timeWindowHours] = useState(2); // 2-hour time windows
   const [openingHour] = useState(8); // 8 AM
   const [closingHour] = useState(20); // 8 PM (20:00)
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [bookingForm, setBookingForm] = useState({
+    selectedServices: [],
+    pickupDate: "",
+    pickupTime: "",
+  });
 
 
   // Map service names to icons (fallback)
@@ -69,12 +75,22 @@ export default function Dashboard() {
     "Iron Only": popular2,
   };
 
-  // Fetch services from Supabase on component mount
+  // Fetch services from API on component mount
   useEffect(() => {
     checkAuth();
     fetchServices();
     getUserProfile();
+    fetchUnreadMessages();
   }, []);
+
+  const fetchUnreadMessages = async () => {
+    try {
+      const { count } = await api.messages.unreadCount();
+      setUnreadMessages(count || 0);
+    } catch {
+      setUnreadMessages(0);
+    }
+  };
 
   // Fetch booking availability when booking modal opens
   useEffect(() => {
@@ -85,7 +101,7 @@ export default function Dashboard() {
 
   const checkAuth = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) {
         navigate("/login");
         return;
@@ -110,33 +126,36 @@ export default function Dashboard() {
     }
   };
 
+  const mapService = (service) => ({
+    ...service,
+    price: parseFloat(service.price),
+    icon: service.icon_url || serviceIcons[service.name] || service1,
+    image: service.image_url || serviceImages[service.name] || popular1,
+    displayPrice: `₱${service.price} ${service.unit || 'per kg'}`,
+    rating: parseFloat(service.rating) || 0,
+    booking_count: Number(service.booking_count) || 0,
+    is_active: service.is_active !== false,
+  });
+
+  const isServiceActive = (service) => service.is_active !== false && service.name;
+
   const fetchServices = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('services')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
+      const [data, bookedData] = await Promise.all([
+        api.services.list(true),
+        api.services.mostBooked(10).catch(() => []),
+      ]);
 
-      if (error) throw error;
+      const activeServices = (data || []).map(mapService).filter(isServiceActive);
+      setServices(activeServices);
 
-      // Map services with icons and images
-      // Keep original price as numeric for calculations, add displayPrice for UI
-      const mappedServices = (data || []).map(service => ({
-        ...service,
-        price: parseFloat(service.price), // Ensure price is numeric
-        // Use database URLs if available, otherwise fallback to local assets
-        icon: service.icon_url || serviceIcons[service.name] || service1,
-        image: service.image_url || serviceImages[service.name] || popular1,
-        displayPrice: `₱${service.price} ${service.unit}`,
-        rating: parseFloat(service.rating) || 0, // Use rating from database
-      }));
-
-      setServices(mappedServices);
-      
-      // Set popular services using is_popular field from database
-      setPopularServices(mappedServices.filter(s => s.is_popular === true));
+      const mappedMostBooked = (bookedData || [])
+        .filter((s) => s.booking_count > 0 && s.is_active !== false && s.name)
+        .map(mapService);
+      setMostBookedServices(
+        mappedMostBooked.length > 0 ? mappedMostBooked : activeServices.slice(0, 2)
+      );
     } catch (error) {
       console.error("Error fetching services:", error);
       alert("Failed to load services. Please try again.");
@@ -170,12 +189,7 @@ export default function Dashboard() {
   const fetchBookingAvailability = async () => {
     try {
       // Get all pending, confirmed, and in_progress bookings (exclude cancelled and completed)
-      const { data: bookings, error } = await supabase
-        .from('bookings')
-        .select('pickup_date, pickup_time, status')
-        .in('status', ['pending', 'confirmed', 'in_progress']);
-
-      if (error) throw error;
+      const bookings = await api.bookings.availability();
 
       // Count bookings per date and 2-hour time window
       const availability = {};
@@ -268,6 +282,67 @@ export default function Dashboard() {
     return timeAvail.status === 'full';
   };
 
+  const getDateFieldState = (date) => {
+    if (!date) return { hint: null, inputClass: 'border-gray-200 focus:ring-blue-500', iconClass: 'text-gray-400' };
+    const availability = getDateAvailability(date);
+    if (availability.status === 'full') {
+      return {
+        hint: 'This date is fully booked. Pick another date.',
+        hintClass: 'text-red-600',
+        inputClass: 'border-red-300 bg-red-50 focus:ring-red-400',
+        iconClass: 'text-red-500',
+      };
+    }
+    if (availability.status === 'warning') {
+      return {
+        hint: `${availability.remaining} slot(s) left today`,
+        hintClass: 'text-amber-600',
+        inputClass: 'border-amber-300 bg-amber-50 focus:ring-amber-400',
+        iconClass: 'text-amber-500',
+      };
+    }
+    return {
+      hint: `${availability.remaining} slot(s) available`,
+      hintClass: 'text-green-600',
+      inputClass: 'border-gray-200 focus:ring-blue-500',
+      iconClass: 'text-blue-500',
+    };
+  };
+
+  const getTimeFieldState = (date, time) => {
+    if (!date || !time) {
+      return { hint: null, inputClass: 'border-gray-200 focus:ring-blue-500', iconClass: 'text-gray-400' };
+    }
+    const availability = getTimeAvailability(date, time);
+    if (availability.status === 'full') {
+      return {
+        hint: `${availability.windowInfo} is full. Choose another time.`,
+        hintClass: 'text-red-600',
+        inputClass: 'border-red-300 bg-red-50 focus:ring-red-400',
+        iconClass: 'text-red-500',
+      };
+    }
+    if (availability.status === 'warning') {
+      return {
+        hint: `${availability.remaining} slot(s) left in ${availability.windowInfo}`,
+        hintClass: 'text-amber-600',
+        inputClass: 'border-amber-300 bg-amber-50 focus:ring-amber-400',
+        iconClass: 'text-amber-500',
+      };
+    }
+    return {
+      hint: `${availability.remaining} slot(s) in ${availability.windowInfo}`,
+      hintClass: 'text-green-600',
+      inputClass: 'border-gray-200 focus:ring-blue-500',
+      iconClass: 'text-blue-500',
+    };
+  };
+
+  const closeBookingModal = () => {
+    setShowBookingModal(false);
+    setBookingForm({ selectedServices: [], pickupDate: "", pickupTime: "" });
+  };
+
   // Bottom navigation
   const bottomNav = [
     { id: 1, icon: history, label: "History", action: () => navigate("/history") },
@@ -275,7 +350,7 @@ export default function Dashboard() {
     { id: 3, icon: profile, label: "Profile", action: () => navigate("/profile") },
   ];
 
-  // Get services list for booking form (from Supabase services)
+  // Get services list for booking form (from API services)
   const servicesList = services.map(service => ({
     id: service.id,
     name: service.name,
@@ -284,18 +359,12 @@ export default function Dashboard() {
   }));
 
   // Use services from database for booking modal (filter only active ones)
-  const bookingServices = services.filter(s => s.is_active !== false).map(s => ({
+  const bookingServices = services.map(s => ({
     id: s.id,
     name: s.name,
     price: parseFloat(s.price),
     unit: s.unit || 'per kg'
   }));
-
-  const [bookingForm, setBookingForm] = useState({
-    selectedServices: [], // Array of selected service IDs
-    pickupDate: "",
-    pickupTime: "",
-  });
 
   // ----- Helpers -----
   const handleServiceToggle = (serviceId) => {
@@ -413,97 +482,69 @@ export default function Dashboard() {
       
       console.log('Placing order with order_id:', orderId, 'user_id:', userId);
 
-      // Save each service as a separate booking entry
-      const bookingPromises = servicesToSave.map(async (service, index) => {
-        // Use service ID directly if available, otherwise find by name
+      const bookingsToCreate = servicesToSave.map((service, index) => {
         const serviceId = service.id || services.find(s => s.name === service.name)?.id || null;
-        
-        // Ensure user_id is a valid UUID string
+
         if (!userId || typeof userId !== 'string') {
           throw new Error('Invalid user ID. Please log in again.');
         }
-        
-        // Validate required fields
+
         if (!booking.pickupDate || !booking.pickupTime) {
           throw new Error('Pickup date and time are required.');
         }
-        
-        // Generate unique order_id for each service entry to avoid conflicts
-        // But keep them grouped with a base order ID
-        const serviceOrderId = servicesToSave.length > 1 
-          ? `${orderId}-${index + 1}` 
+
+        const serviceOrderId = servicesToSave.length > 1
+          ? `${orderId}-${index + 1}`
           : orderId;
-        
-        // Prepare booking data with correct types
-        const bookingData = {
+
+        return {
           order_id: serviceOrderId,
-          user_id: userId, // Should be UUID string
+          user_id: userId,
           service_id: serviceId,
           quantity: parseFloat(service.quantity) || 1.0,
-          pickup_date: booking.pickupDate, // Should be YYYY-MM-DD format
-          pickup_time: booking.pickupTime, // Should be HH:MM:SS format
-          payment_method: null, // Will be set by staff when confirming payment
+          pickup_date: booking.pickupDate,
+          pickup_time: booking.pickupTime,
+          payment_method: null,
           payment_id: paymentId,
-          payment_status: 'unpaid', // Staff will confirm payment later
-          total_price: parseFloat(service.price) || 0.00, // Must be number, not string
+          payment_status: 'unpaid',
+          total_price: parseFloat(service.price) || 0.00,
           status: 'pending'
         };
-        
-        console.log('Inserting booking:', JSON.stringify(bookingData, null, 2));
-        
-        return supabase
-          .from('bookings')
-          .insert(bookingData)
-          .select()
-          .single();
       });
 
-      const bookingResults = await Promise.all(bookingPromises);
-      let bookingData = bookingResults[0]?.data || bookingResults[0];
-
-      // Check for errors
-      const errors = bookingResults.filter(r => r.error);
-      if (errors.length > 0) {
-        const error = errors[0].error;
-        // If it's a duplicate key error, try with a new order ID
-        if (error.code === '23505' && error.message?.includes('order_id')) {
-          // Retry with a new order ID (only once)
-          const newOrderId = generateUniqueOrderId();
-          const retryPromises = servicesToSave.map(async (service, index) => {
+      let bookingResults;
+      try {
+        bookingResults = await api.bookings.create(bookingsToCreate);
+      } catch (error) {
+        if (error.code === '23505') {
+          orderId = generateUniqueOrderId();
+          const retryBookings = servicesToSave.map((service, index) => {
             const serviceId = service.id || services.find(s => s.name === service.name)?.id || null;
-            const serviceOrderId = servicesToSave.length > 1 
-              ? `${newOrderId}-${index + 1}` 
-              : newOrderId;
-            return supabase
-              .from('bookings')
-              .insert({
-                order_id: serviceOrderId,
-                user_id: userId,
-                service_id: serviceId,
-                quantity: parseFloat(service.quantity) || 1,
-                pickup_date: booking.pickupDate,
-                pickup_time: booking.pickupTime,
-                payment_method: null,
-                payment_id: paymentId,
-                payment_status: 'unpaid',
-                total_price: parseFloat(service.price) || 0,
-                status: 'pending'
-              })
-              .select()
-              .single();
+            const serviceOrderId = servicesToSave.length > 1
+              ? `${orderId}-${index + 1}`
+              : orderId;
+            return {
+              order_id: serviceOrderId,
+              user_id: userId,
+              service_id: serviceId,
+              quantity: parseFloat(service.quantity) || 1,
+              pickup_date: booking.pickupDate,
+              pickup_time: booking.pickupTime,
+              payment_method: null,
+              payment_id: paymentId,
+              payment_status: 'unpaid',
+              total_price: parseFloat(service.price) || 0,
+              status: 'pending'
+            };
           });
-          
-          const retryResults = await Promise.all(retryPromises);
-          const retryErrors = retryResults.filter(r => r.error);
-          if (retryErrors.length > 0) throw retryErrors[0].error;
-          
-          // Use the new order ID and booking data
-          orderId = newOrderId;
-          bookingData = retryResults[0]?.data || retryResults[0];
+          bookingResults = await api.bookings.create(retryBookings);
         } else {
           throw error;
         }
       }
+
+      const resultsArray = Array.isArray(bookingResults) ? bookingResults : [bookingResults];
+      let bookingData = resultsArray[0];
 
       // Prepare receipt data
       const servicesData = servicesToSave.map(service => ({
@@ -523,45 +564,43 @@ export default function Dashboard() {
         booking: bookingData
       };
 
-      // Send notification to customer
-      await supabase.from('notifications').insert({
+      const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
+      let customerName = userProfile.name?.trim();
+      if (!customerName) {
+        try {
+          const profile = await api.profiles.get(userId);
+          customerName = profile?.name?.trim() || profile?.email?.split('@')[0] || 'Customer';
+        } catch {
+          customerName = userProfile.email?.split('@')[0] || 'Customer';
+        }
+      }
+
+      await api.notifications.create({
         user_id: userId,
         title: 'Booking Submitted!',
-        message: `Your booking #${orderId} has been submitted. Total: ₱${totalPrice}. Waiting for staff confirmation.`,
+        message: `${customerName}: Your booking #${orderId} has been submitted. Total: ₱${totalPrice}. Waiting for staff confirmation.`,
         type: 'info'
       });
 
-      // Send notification to all admin and staff
-      const { data: staffAndAdmins } = await supabase
-        .from('profiles')
-        .select('id')
-        .in('role', ['admin', 'staff']);
+      const staffAndAdmins = await api.profiles.byRole(['admin', 'staff']);
 
       if (staffAndAdmins && staffAndAdmins.length > 0) {
         const staffNotifications = staffAndAdmins.map(staff => ({
           user_id: staff.id,
           title: 'New Booking Received!',
-          message: `New booking #${orderId} needs attention. Services: ${servicesData.map(s => s.name).join(', ')}. Total: ₱${totalPrice}`,
+          message: `${customerName} booked #${orderId}. Services: ${servicesData.map(s => s.name).join(', ')}. Total: ₱${totalPrice}`,
           type: 'info'
         }));
 
-        await supabase.from('notifications').insert(staffNotifications);
+        await api.notifications.create(staffNotifications);
       }
 
-      // Update customer's preferred_pickup_time and increment total_bookings
-      const { data: currentCustomer } = await supabase
-        .from('customers')
-        .select('total_bookings')
-        .eq('id', userId)
-        .single();
+      const currentCustomer = await api.customers.get(userId);
 
-      await supabase
-        .from('customers')
-        .upsert({
-          id: userId,
-          preferred_pickup_time: booking.pickupTime,
-          total_bookings: (currentCustomer?.total_bookings || 0) + 1
-        }, { onConflict: 'id' });
+      await api.customers.upsert(userId, {
+        preferred_pickup_time: booking.pickupTime,
+        total_bookings: (currentCustomer?.total_bookings || 0) + 1
+      });
 
       setShowOrderDetailsModal(null);
       setShowReceiptModal(receiptData);
@@ -592,6 +631,10 @@ export default function Dashboard() {
 
   const totalCost = (services) => services.reduce((sum, s) => sum + (s.price || 0), 0);
 
+  const dateFieldState = getDateFieldState(bookingForm.pickupDate);
+  const timeFieldState = getTimeFieldState(bookingForm.pickupDate, bookingForm.pickupTime);
+  const bookingTotal = calculateTotal();
+
   // ----- JSX -----
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col relative">
@@ -607,17 +650,40 @@ export default function Dashboard() {
             <h1 className="text-base sm:text-lg font-bold">Laundry Connect</h1>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {(userRole === 'staff' || userRole === 'admin') && (
+              <button
+                onClick={() => navigate("/admindashboard")}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-green-500 hover:bg-green-600 active:bg-green-700 text-white rounded-lg transition touch-manipulation"
+                aria-label="Admin Dashboard"
+                title="Admin Dashboard"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden sm:inline text-xs font-medium">Admin</span>
+              </button>
+            )}
+            <button
+              onClick={() => navigate("/messages")}
+              className="relative p-1.5 sm:p-2 rounded-lg hover:bg-white/20 active:bg-white/30 transition touch-manipulation"
+              aria-label="Messages"
+              title="Messages"
+            >
+              <MessageSquare className="w-5 h-5" />
+              {unreadMessages > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+                  {unreadMessages > 9 ? "9+" : unreadMessages}
+                </span>
+              )}
+            </button>
             {userId && <Notifications userId={userId} variant="dark" />}
-            <div className="w-7 sm:w-9"></div>
           </div>
         </div>
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col items-center px-3 sm:px-4 md:px-6 pb-24 pt-4 sm:pt-6 bg-blue-50">
+      <div className="flex-1 flex flex-col items-center px-3 sm:px-4 md:px-6 pb-28 sm:pb-24 pt-4 sm:pt-6 bg-blue-50 w-full max-w-6xl mx-auto">
 
         {/* Welcome Section - Enhanced */}
-        <div className="w-full max-w-6xl mb-4 sm:mb-6 md:mb-8">
+        <div className="w-full mb-4 sm:mb-6 md:mb-8">
           <div className="bg-blue-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg text-white">
             <div className="flex items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
               <Zap className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -627,8 +693,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Popular Services - Enhanced */}
-        <section className="w-full max-w-6xl mb-4 sm:mb-6 md:mb-8">
+        {/* Most Booked Services */}
+        <section className="w-full mb-4 sm:mb-6 md:mb-8">
           <div className="flex justify-between items-center mb-3 sm:mb-4">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
@@ -636,32 +702,13 @@ export default function Dashboard() {
             </div>
             <button 
               className="text-blue-600 text-xs sm:text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
-              onClick={() => setSeeAllModal({ type: "popular", data: popularServices })}
+              onClick={() => setSeeAllModal({ type: "mostBooked", data: mostBookedServices })}
             >
               See all <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 rotate-180" />
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-            {(popularServices.length >= 2 ? popularServices.slice(0, 2) : [
-              {
-                id: "wash-popular",
-                name: "Wash",
-                price: 35,
-                unit: "kg",
-                displayPrice: "P35/kg",
-                image: popular1,
-                rating: 4.8
-              },
-              {
-                id: "iron-popular",
-                name: "Iron",
-                price: 25,
-                unit: "pc",
-                displayPrice: "P25/pc",
-                image: popular2,
-                rating: 4.5
-              }
-            ]).map((service) => (
+            {mostBookedServices.slice(0, 2).map((service) => (
               <div 
                 key={service.id} 
                 className="bg-white rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 overflow-hidden"
@@ -675,7 +722,7 @@ export default function Dashboard() {
                   />
                   <div className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-white px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg flex items-center gap-1 text-[10px] sm:text-xs font-medium">
                     <FaStar className="text-yellow-400 fill-yellow-400 w-3 h-3" />
-                    <span>{service.rating || "4.5"}</span>
+                    <span>{service.rating > 0 ? service.rating.toFixed(1) : "—"}</span>
                   </div>
                 </div>
                 <div className="p-2 sm:p-3 md:p-4">
@@ -696,15 +743,7 @@ export default function Dashboard() {
             </div>
             <button 
               className="text-blue-600 text-xs sm:text-sm font-medium hover:text-blue-700 transition flex items-center gap-1"
-              onClick={() => setSeeAllModal({ type: "services", data: services.map(s => ({
-                id: s.id,
-                name: s.name,
-                price: s.price,
-                unit: s.unit,
-                displayPrice: s.displayPrice || `P${s.price}/${s.unit}`,
-                icon: s.icon || serviceIcons[s.name] || service1,
-                image: s.image_url || s.image || serviceImages[s.name] || popular1
-              })) })}
+              onClick={() => setSeeAllModal({ type: "services", data: services })}
             >
               See all <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 rotate-180" />
             </button>
@@ -717,13 +756,9 @@ export default function Dashboard() {
                   key={service.id} 
                   className="flex flex-col items-center bg-white rounded-lg overflow-hidden hover:shadow-md transition-all cursor-pointer border border-gray-100"
                   onClick={() => setModalService({
-                    id: service.id,
-                    name: service.name,
-                    price: service.price,
-                    unit: service.unit,
-                    displayPrice: service.displayPrice || `P${service.price}/${service.unit}`,
-                    icon: service.icon || serviceIcons[service.name] || service1,
-                    image: serviceImage
+                    ...service,
+                    displayPrice: service.displayPrice || `₱${service.price}/${service.unit || 'per kg'}`,
+                    image: serviceImage,
                   })}
                 >
                   <div className="w-full h-16 sm:h-20 md:h-24 bg-gray-100 overflow-hidden">
@@ -735,7 +770,7 @@ export default function Dashboard() {
                   </div>
                   <div className="p-2 sm:p-3 w-full">
                     <p className="text-[10px] sm:text-xs font-medium text-gray-700 text-center leading-tight truncate">{service.name}</p>
-                    <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">P{service.price}/{service.unit}</p>
+                    <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">{service.displayPrice}</p>
                   </div>
                 </div>
               );
@@ -745,20 +780,6 @@ export default function Dashboard() {
 
       </div>
 
-      {/* Staff Dashboard Button - Only visible to staff */}
-      {(userRole === 'staff' || userRole === 'admin') && (
-        <div className="fixed top-16 sm:top-20 right-3 sm:right-4 z-40">
-          <button
-            onClick={() => navigate("/admindashboard")}
-            className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white p-2.5 sm:px-4 sm:py-2 rounded-lg shadow-lg flex items-center justify-center gap-2 transition font-medium touch-manipulation"
-            aria-label="Staff Dashboard"
-            title="Staff Dashboard"
-          >
-            <Sparkles className="w-5 h-5 sm:w-4 sm:h-4" />
-            <span className="hidden sm:inline">Staff Dashboard</span>
-          </button>
-        </div>
-      )}
 
       {/* Enhanced Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-blue-100 py-2 sm:py-3 flex justify-around items-center shadow-lg z-50 safe-area-bottom">
@@ -788,7 +809,7 @@ export default function Dashboard() {
             <img src={modalService.image || modalService.icon} alt={modalService.name} className="w-full h-40 sm:h-48 object-cover rounded-lg mb-3 sm:mb-4" />
             <h3 className="text-base sm:text-lg font-semibold mb-2">{modalService.name}</h3>
             <p className="text-gray-600 mb-2 text-sm">{modalService.description}</p>
-            <p className="font-medium text-sm sm:text-base">{modalService.displayPrice || `₱${modalService.price} ${modalService.unit}`}</p>
+            <p className="font-medium text-sm sm:text-base">{modalService.displayPrice || `₱${modalService.price} ${modalService.unit || 'per kg'}`}</p>
           </div>
         </div>
       )}
@@ -798,13 +819,21 @@ export default function Dashboard() {
         <div className="fixed inset-0 bg-black/50 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-3xl relative shadow-lg max-h-[90vh] overflow-y-auto">
             <button onClick={() => setSeeAllModal(null)} className="absolute top-3 right-3 sm:top-2 sm:right-2 text-gray-500 hover:text-black font-bold cursor-pointer z-10 bg-white/80 rounded-full p-1">✕</button>
-            <h3 className="text-base sm:text-lg font-semibold mb-4">{seeAllModal.type === "popular" ? "All Popular Services" : "All Services"}</h3>
+            <h3 className="text-base sm:text-lg font-semibold mb-4">
+              {seeAllModal.type === "mostBooked" ? "Popular Services" : "All Services"}
+            </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {seeAllModal.data.map(service => (
                 <div key={service.id} className="flex flex-col items-center bg-white rounded-xl sm:rounded-2xl overflow-hidden hover:shadow-md transition cursor-pointer border border-gray-100"
                   onClick={() => { setModalService(service); setSeeAllModal(null); }}>
-                  <div className="w-full h-24 sm:h-32 bg-gray-100 overflow-hidden">
+                  <div className="relative w-full h-24 sm:h-32 bg-gray-100 overflow-hidden">
                     <img src={service.image || service.icon} alt={service.name} className="w-full h-full object-cover" />
+                    {service.rating > 0 && (
+                      <div className="absolute top-2 right-2 bg-white px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-medium">
+                        <FaStar className="text-yellow-400 fill-yellow-400 w-3 h-3" />
+                        <span>{service.rating.toFixed(1)}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="p-2 sm:p-4 w-full">
                     <p className="font-medium text-gray-700 text-center text-sm sm:text-base truncate">{service.name}</p>
@@ -821,240 +850,167 @@ export default function Dashboard() {
 
       {/* Booking Modal */}
       {showBookingModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-md relative shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4 sm:mb-6">
-              <h1 className="text-lg sm:text-xl font-bold text-blue-500">Booking Laundry</h1>
-              <button onClick={() => {
-                setShowBookingModal(false);
-                setBookingForm({ selectedServices: [], pickupDate: "", pickupTime: "" });
-              }} className="text-black font-bold cursor-pointer text-xl p-1 hover:bg-gray-100 rounded-full">✕</button>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="flex flex-col w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[88vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden">
+            {/* Header */}
+            <div className="flex-shrink-0 px-4 pt-3 pb-3 border-b border-gray-100">
+              <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-3 sm:hidden" aria-hidden="true" />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900">Book Laundry</h2>
+                  <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Select services and pickup schedule</p>
+                </div>
+                <button
+                  onClick={closeBookingModal}
+                  className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full transition"
+                  aria-label="Close booking form"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-4">
-              {/* Availability Legend */}
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <p className="text-xs font-semibold text-blue-800 mb-2">📅 Booking Information</p>
-                <div className="flex flex-col gap-1.5 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🕐</span>
-                    <span className="text-gray-700"><strong>Hours:</strong> 8:00 AM - 8:00 PM</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">📆</span>
-                    <span className="text-gray-700"><strong>Daily Limit:</strong> 20 bookings/day</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">⏰</span>
-                    <span className="text-gray-700"><strong>Per Window:</strong> 5 bookings/2hrs</span>
-                  </div>
-                </div>
-                <div className="border-t border-blue-200 mt-2 pt-2 flex flex-wrap gap-2 text-[10px]">
-                  <span className="text-green-600">🟢 Available</span>
-                  <span className="text-yellow-600">🟡 Almost Full</span>
-                  <span className="text-red-600">🔴 Full</span>
-                </div>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-5 min-h-0">
+              <div className="flex flex-wrap gap-2">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-[11px] sm:text-xs text-gray-600">8AM – 8PM</span>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-[11px] sm:text-xs text-gray-600">20/day max</span>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-[11px] sm:text-xs text-gray-600">5 per 2hr window</span>
               </div>
 
-              {/* Service Type - Checkboxes */}
-              <div>
-                <label className="block text-gray-900 font-bold mb-2">Service Type</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {bookingServices.map((service) => (
-                    <label key={service.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={bookingForm.selectedServices.includes(service.id)}
-                        onChange={() => handleServiceToggle(service.id)}
-                        className="w-4 h-4 text-blue-500 border-gray-300 rounded focus:ring-blue-400"
-                      />
-                      <span className="text-gray-700">
-                        {service.name} - P{service.price}/{service.unit}
-                      </span>
+              {/* Services */}
+              <section>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Services</h3>
+                <div className="space-y-2">
+                  {bookingServices.map((service) => {
+                    const isSelected = bookingForm.selectedServices.includes(service.id);
+                    const unitLabel = (service.unit || 'per kg').replace('per ', '');
+                    return (
+                      <button
+                        key={service.id}
+                        type="button"
+                        onClick={() => handleServiceToggle(service.id)}
+                        className={`w-full flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-xl border-2 transition text-left touch-manipulation ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 bg-white hover:border-gray-300 active:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+                            isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-300'
+                          }`}>
+                            {isSelected && <span className="text-xs leading-none">✓</span>}
+                          </span>
+                          <span className="font-medium text-sm sm:text-base text-gray-900 truncate">{service.name}</span>
+                        </div>
+                        <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
+                          ₱{service.price}/{unitLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Pickup schedule */}
+              <section>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Pickup Schedule</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="pickup-date" className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Date
                     </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Total */}
-              <div>
-                <label className="block text-gray-900 font-bold mb-2">Total</label>
-                <input 
-                  type="text" 
-                  value={calculateTotal()}
-                  readOnly
-                  className="w-full border border-blue-300 rounded-lg px-4 py-3 text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-                />
-              </div>
-
-              {/* Pickup Date */}
-              <div>
-                <label className="block text-gray-900 font-bold mb-2">
-                  Pickup Date
-                  {bookingForm.pickupDate && (() => {
-                    const availability = getDateAvailability(bookingForm.pickupDate);
-                    if (availability.status === 'full') {
-                      return <span className="ml-2 text-xs text-red-600 font-normal">(Fully Booked - 10/10)</span>;
-                    } else if (availability.status === 'warning') {
-                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.remaining} slots left)</span>;
-                    } else {
-                      return <span className="ml-2 text-xs text-green-600 font-normal">({availability.remaining} slots available)</span>;
-                    }
-                  })()}
-                </label>
-                <div className="relative">
-                  <input 
-                    type="date" 
-                    value={bookingForm.pickupDate} 
-                    onChange={(e) => {
-                      const selectedDate = e.target.value;
-                      if (!isDateDisabled(selectedDate)) {
-                        setBookingForm({ ...bookingForm, pickupDate: selectedDate, pickupTime: "" });
-                      } else {
-                        alert(`This date (${selectedDate}) is fully booked. Please select another date.`);
-                      }
-                    }}
-                    min={new Date().toISOString().split('T')[0]} // Prevent past dates
-                    className={`w-full border rounded-lg px-4 py-3 pr-10 text-gray-600 focus:outline-none focus:ring-2 transition ${
-                      bookingForm.pickupDate ? (() => {
-                        const availability = getDateAvailability(bookingForm.pickupDate);
-                        if (availability.status === 'full') {
-                          return 'border-red-500 bg-red-50 focus:ring-red-400';
-                        } else if (availability.status === 'warning') {
-                          return 'border-yellow-500 bg-yellow-50 focus:ring-yellow-400';
+                    <input
+                      id="pickup-date"
+                      type="date"
+                      value={bookingForm.pickupDate}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        if (!isDateDisabled(selectedDate)) {
+                          setBookingForm({ ...bookingForm, pickupDate: selectedDate, pickupTime: "" });
+                        } else {
+                          alert(`This date is fully booked. Please select another date.`);
                         }
-                        return 'border-blue-300 focus:ring-blue-400';
-                      })() : 'border-blue-300 focus:ring-blue-400'
-                    }`}
-                  />
-                  <Calendar className={`absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none ${
-                    bookingForm.pickupDate ? (() => {
-                      const availability = getDateAvailability(bookingForm.pickupDate);
-                      if (availability.status === 'full') {
-                        return 'text-red-500';
-                      } else if (availability.status === 'warning') {
-                        return 'text-yellow-500';
-                      }
-                      return 'text-gray-400';
-                    })() : 'text-gray-400'
-                  }`} />
-                </div>
-                {bookingForm.pickupDate && (() => {
-                  const availability = getDateAvailability(bookingForm.pickupDate);
-                  if (availability.status === 'full') {
-                    return <p className="text-xs text-red-600 mt-1">⚠️ This date is fully booked (10/10). Please choose another date.</p>;
-                  } else if (availability.status === 'warning') {
-                    return <p className="text-xs text-yellow-600 mt-1">⚠️ This date is almost full ({availability.count}/10 bookings). {availability.remaining} slot(s) left!</p>;
-                  } else {
-                    return <p className="text-xs text-green-600 mt-1">✓ {availability.remaining} booking slot(s) available for this date</p>;
-                  }
-                })()}
-              </div>
+                      }}
+                      min={new Date().toISOString().split('T')[0]}
+                      className={`w-full border rounded-xl px-3 py-2.5 sm:py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${dateFieldState.inputClass}`}
+                    />
+                    {dateFieldState.hint && (
+                      <p className={`text-[11px] sm:text-xs mt-1.5 ${dateFieldState.hintClass}`}>{dateFieldState.hint}</p>
+                    )}
+                  </div>
 
-              {/* Pickup Time */}
-              <div>
-                <label className="block text-gray-900 font-bold mb-2">
-                  Pickup Time
-                  {bookingForm.pickupDate && bookingForm.pickupTime && (() => {
-                    const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
-                    if (availability.status === 'full') {
-                      return <span className="ml-2 text-xs text-red-600 font-normal">(Window Full: {availability.windowInfo})</span>;
-                    } else if (availability.status === 'warning') {
-                      return <span className="ml-2 text-xs text-yellow-600 font-normal">({availability.remaining} slots left in {availability.windowInfo})</span>;
-                    } else if (availability.remaining) {
-                      return <span className="ml-2 text-xs text-green-600 font-normal">({availability.remaining} slots available)</span>;
-                    }
-                    return null;
-                  })()}
-                </label>
-                <div className="relative">
-                  <select
-                    value={bookingForm.pickupTime}
-                    onChange={(e) => {
-                      const selectedTime = e.target.value;
-                      if (bookingForm.pickupDate && selectedTime && isTimeDisabled(bookingForm.pickupDate, selectedTime)) {
-                        const availability = getTimeAvailability(bookingForm.pickupDate, selectedTime);
-                        alert(`The time window ${availability.windowInfo} is fully booked (5/5). Please select a time in a different 2-hour window.`);
-                        return;
-                      }
-                      setBookingForm({ ...bookingForm, pickupTime: selectedTime });
-                    }}
-                    disabled={!bookingForm.pickupDate}
-                    className={`w-full border rounded-lg px-4 py-3 pr-10 text-gray-600 focus:outline-none focus:ring-2 transition appearance-none cursor-pointer ${
-                      !bookingForm.pickupDate 
-                        ? 'border-gray-300 bg-gray-100 cursor-not-allowed' 
-                        : bookingForm.pickupTime ? (() => {
-                            const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
-                            if (availability.status === 'full') {
-                              return 'border-red-500 bg-red-50 focus:ring-red-400';
-                            } else if (availability.status === 'warning') {
-                              return 'border-yellow-500 bg-yellow-50 focus:ring-yellow-400';
-                            }
-                            return 'border-blue-300 focus:ring-blue-400';
-                          })() : 'border-blue-300 focus:ring-blue-400'
-                    }`}
-                  >
-                    <option value="">Select pickup time</option>
-                    {/* Generate time slots from 8 AM to 8 PM (every 30 minutes) */}
-                    {Array.from({ length: 25 }, (_, i) => {
-                      const hour = Math.floor(i / 2) + 8;
-                      const minute = (i % 2) * 30;
-                      if (hour >= 20 && minute > 0) return null; // Stop at 8:00 PM
-                      const timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-                      const displayHour = hour > 12 ? hour - 12 : hour;
-                      const ampm = hour >= 12 ? 'PM' : 'AM';
-                      const displayTime = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
-                      
-                      // Check availability for this time slot
-                      const availability = bookingForm.pickupDate ? getTimeAvailability(bookingForm.pickupDate, timeValue) : null;
-                      const isFull = availability?.status === 'full';
-                      const isWarning = availability?.status === 'warning';
-                      
-                      return (
-                        <option 
-                          key={timeValue} 
-                          value={timeValue}
-                          disabled={isFull}
-                          className={isFull ? 'text-red-500' : isWarning ? 'text-yellow-600' : ''}
-                        >
-                          {displayTime} {isFull ? '(Full)' : isWarning ? `(${availability.remaining} left)` : ''}
-                        </option>
-                      );
-                    }).filter(Boolean)}
-                  </select>
-                  <Clock className={`absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 pointer-events-none ${
-                    !bookingForm.pickupDate 
-                      ? 'text-gray-300' 
-                      : bookingForm.pickupTime ? (() => {
-                          const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
-                          if (availability.status === 'full') {
-                            return 'text-red-500';
-                          } else if (availability.status === 'warning') {
-                            return 'text-yellow-500';
+                  <div>
+                    <label htmlFor="pickup-time" className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Time
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="pickup-time"
+                        value={bookingForm.pickupTime}
+                        onChange={(e) => {
+                          const selectedTime = e.target.value;
+                          if (bookingForm.pickupDate && selectedTime && isTimeDisabled(bookingForm.pickupDate, selectedTime)) {
+                            const availability = getTimeAvailability(bookingForm.pickupDate, selectedTime);
+                            alert(`The time window ${availability.windowInfo} is fully booked. Please select another time.`);
+                            return;
                           }
-                          return 'text-blue-500';
-                        })() : 'text-gray-400'
-                  }`} />
+                          setBookingForm({ ...bookingForm, pickupTime: selectedTime });
+                        }}
+                        disabled={!bookingForm.pickupDate}
+                        className={`w-full border rounded-xl px-3 py-2.5 sm:py-3 pr-9 text-sm text-gray-800 focus:outline-none focus:ring-2 transition appearance-none ${
+                          !bookingForm.pickupDate
+                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                            : timeFieldState.inputClass
+                        }`}
+                      >
+                        <option value="">Select time</option>
+                        {Array.from({ length: 25 }, (_, i) => {
+                          const hour = Math.floor(i / 2) + 8;
+                          const minute = (i % 2) * 30;
+                          if (hour >= 20 && minute > 0) return null;
+                          const timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                          const displayHour = hour > 12 ? hour - 12 : hour;
+                          const ampm = hour >= 12 ? 'PM' : 'AM';
+                          const displayTime = `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
+                          const availability = bookingForm.pickupDate ? getTimeAvailability(bookingForm.pickupDate, timeValue) : null;
+                          const isFull = availability?.status === 'full';
+                          return (
+                            <option key={timeValue} value={timeValue} disabled={isFull}>
+                              {displayTime}{isFull ? ' (Full)' : ''}
+                            </option>
+                          );
+                        }).filter(Boolean)}
+                      </select>
+                      <Clock className={`absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${
+                        !bookingForm.pickupDate ? 'text-gray-300' : timeFieldState.iconClass
+                      }`} />
+                    </div>
+                    {timeFieldState.hint && (
+                      <p className={`text-[11px] sm:text-xs mt-1.5 ${timeFieldState.hintClass}`}>{timeFieldState.hint}</p>
+                    )}
+                  </div>
                 </div>
-                {bookingForm.pickupDate && bookingForm.pickupTime && (() => {
-                  const availability = getTimeAvailability(bookingForm.pickupDate, bookingForm.pickupTime);
-                  if (availability.status === 'full') {
-                    return <p className="text-xs text-red-600 mt-1">⚠️ Time window {availability.windowInfo} is fully booked (5/5). Please choose a different time.</p>;
-                  } else if (availability.status === 'warning') {
-                    return <p className="text-xs text-yellow-600 mt-1">⚠️ Time window {availability.windowInfo} has {availability.count}/5 bookings. Only {availability.remaining} slot(s) left!</p>;
-                  } else if (availability.remaining) {
-                    return <p className="text-xs text-green-600 mt-1">✓ Time window {availability.windowInfo} - {availability.remaining} slot(s) available</p>;
-                  }
-                  return null;
-                })()}
-              </div>
+              </section>
+            </div>
 
-              {/* Book Now Button */}
-              <button 
-                onClick={handleBook} 
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-semibold transition mt-4 cursor-pointer"
+            {/* Footer */}
+            <div className="flex-shrink-0 border-t border-gray-100 px-4 py-4 bg-white safe-area-bottom">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-gray-600">
+                  {bookingForm.selectedServices.length > 0
+                    ? `${bookingForm.selectedServices.length} service(s) selected`
+                    : 'No services selected'}
+                </span>
+                <span className="text-xl font-bold text-blue-600">₱{bookingTotal.toFixed(2)}</span>
+              </div>
+              <button
+                onClick={handleBook}
+                disabled={bookingForm.selectedServices.length === 0 || !bookingForm.pickupDate || !bookingForm.pickupTime}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold transition touch-manipulation"
               >
-                Book now
+                Book Now
               </button>
             </div>
           </div>
@@ -1063,8 +1019,8 @@ export default function Dashboard() {
 
       {/* Order Details Modal */}
       {showOrderDetailsModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 overflow-auto p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full relative shadow-lg">
+        <div className="modal-overlay animate-fadeIn z-[60]">
+          <div className="modal-panel sm:max-w-md p-4 sm:p-6 relative animate-slideUp">
             <button onClick={() => setShowOrderDetailsModal(null)} className="absolute top-2 right-2 text-gray-500 hover:text-black font-bold cursor-pointer">✕</button>
             <h1 className="text-xl font-bold text-blue-500 mb-6 text-center">Confirm Booking</h1>
 
